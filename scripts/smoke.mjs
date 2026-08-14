@@ -189,5 +189,61 @@ try {
 }
 check('backlog rejects an unknown schema version', versionRejected);
 
+/* ------------------------------------------- hand-edited files must survive */
+
+// Regression: a hand-edited backlog that omits optional lists used to load as
+// undefined and then throw "Cannot read properties of undefined (reading
+// 'length')" from inside epicToMarkdown, at push time.
+const handEdited = `
+version: 1
+source: {kind: confluence, pageId: "1", title: T, url: u, ingestedAt: now}
+target: {projectKey: ACME}
+prd: {title: T, summary: s}
+epics:
+  - ref: minimal
+    title: An epic with every optional field removed
+    outcome: Something useful happens
+    description: Body.
+    stories:
+      - ref: minimal-story
+        epicRef: minimal
+        title: A story with no optional fields
+        narrative: {asA: user, iWant: a thing, soThat: a benefit}
+        acceptanceCriteria:
+          - {given: g, when: w, then: t}
+`;
+
+let loaded;
+try {
+  loaded = m.deserializeBacklog(handEdited);
+  check('hand-edited backlog loads', true);
+} catch (err) {
+  check('hand-edited backlog loads', false, err.message);
+}
+
+if (loaded) {
+  const e = loaded.epics[0];
+  check('missing lists default to []', Array.isArray(e.inScope) && Array.isArray(e.acceptanceCriteria));
+  check('missing sync defaults to {}', e.sync && typeof e.sync === 'object' && !e.sync.jiraKey);
+  check('missing issue types default', loaded.target.epicIssueType === 'Epic' && loaded.target.storyIssueType === 'Story');
+  check('missing prd lists default to []', Array.isArray(loaded.prd.goals) && Array.isArray(loaded.prd.openQuestions));
+  try {
+    const rendered = m.epicToMarkdown(e);
+    check('minimal epic renders without throwing', rendered.includes('Something useful happens'));
+    check('minimal epic renders to valid ADF', m.markdownToAdf(rendered).content.length > 0);
+  } catch (err) {
+    check('minimal epic renders without throwing', false, err.message);
+  }
+}
+
+// A genuinely broken file must say which field is wrong, not throw a TypeError.
+let msg = '';
+try {
+  m.deserializeBacklog('version: 1\nsource: {kind: confluence, pageId: "1", title: T, url: u, ingestedAt: n}\ntarget: {projectKey: A}\nprd: {title: T, summary: s}\nepics: [{ref: "Bad Ref!", title: x, outcome: y, description: z}]\n');
+} catch (err) {
+  msg = err.message;
+}
+check('invalid field is reported with its path', msg.includes('epics.0.ref'), msg);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

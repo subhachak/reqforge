@@ -65,6 +65,49 @@ export const PrdSkeletonSchema = z.object({
 export const EpicsEnvelopeSchema = z.object({ epics: z.array(EpicProposalSchema).min(1) });
 export const StoriesEnvelopeSchema = z.object({ stories: z.array(StoryProposalSchema).min(1) });
 
+/* ------------------------------------------------------- persisted backlog */
+
+/**
+ * The on-disk shape. Backlog files are meant to be hand-edited, so the load
+ * path validates through these schemas rather than casting: an omitted
+ * `inScope:` becomes `[]` instead of an undefined that explodes later during
+ * rendering, and a genuinely malformed file reports which field is wrong.
+ */
+export const SyncStateSchema = z
+  .object({
+    jiraKey: z.string().optional(),
+    jiraUrl: z.string().optional(),
+    pushedHash: z.string().optional(),
+    pushedAt: z.string().optional()
+  })
+  .default({});
+
+export const StoryItemSchema = StoryProposalSchema.extend({ sync: SyncStateSchema });
+
+export const EpicItemSchema = EpicProposalSchema.extend({
+  sync: SyncStateSchema,
+  stories: z.array(StoryItemSchema).default([])
+});
+
+export const BacklogSchema = z.object({
+  version: z.literal(1),
+  source: z.object({
+    kind: z.literal('confluence'),
+    pageId: z.string(),
+    title: z.string(),
+    url: z.string(),
+    pageVersion: z.number().optional(),
+    ingestedAt: z.string()
+  }),
+  target: z.object({
+    projectKey: z.string(),
+    epicIssueType: z.string().default('Epic'),
+    storyIssueType: z.string().default('Story')
+  }),
+  prd: PrdSkeletonSchema,
+  epics: z.array(EpicItemSchema).default([])
+});
+
 export const CritiqueSchema = z.object({
   findings: z
     .array(

@@ -1,5 +1,6 @@
 import { parse, stringify } from 'yaml';
 import type { Backlog } from './model';
+import { BacklogSchema } from './schemas';
 
 /**
  * The backlog lives as a YAML file in the workspace rather than in extension
@@ -22,18 +23,39 @@ export function serializeBacklog(backlog: Backlog): string {
   return HEADER + stringify(backlog, { lineWidth: 100, aliasDuplicateObjects: false });
 }
 
+/**
+ * Loads a backlog file, applying schema defaults.
+ *
+ * These files are meant to be hand-edited, so this must not be a cast: an
+ * author who deletes an `inScope:` line should get a defaulted empty list, and
+ * an author who genuinely breaks the file should get told which field is wrong
+ * — not a TypeError thrown from inside the markdown renderer three calls later.
+ */
 export function deserializeBacklog(text: string): Backlog {
-  const parsed = parse(text) as Backlog;
-  if (!parsed || parsed.version !== 1) {
-    throw new Error('Not a ReqForge backlog file, or an unsupported version.');
+  let raw: unknown;
+  try {
+    raw = parse(text);
+  } catch (err) {
+    throw new Error(`This backlog file is not valid YAML: ${(err as Error).message}`);
   }
-  // Normalize optional collections so downstream code can stay simple.
-  parsed.epics = (parsed.epics ?? []).map((e) => ({
-    ...e,
-    sync: e.sync ?? {},
-    stories: (e.stories ?? []).map((s) => ({ ...s, sync: s.sync ?? {} }))
-  }));
-  return parsed;
+
+  if (!raw || typeof raw !== 'object') {
+    throw new Error('This backlog file is empty or is not a ReqForge backlog.');
+  }
+  if ((raw as { version?: unknown }).version !== 1) {
+    throw new Error('Not a ReqForge backlog file, or an unsupported schema version.');
+  }
+
+  const result = BacklogSchema.safeParse(raw);
+  if (!result.success) {
+    const detail = result.error.issues
+      .slice(0, 10)
+      .map((i) => `  ${i.path.join('.') || '(root)'}: ${i.message}`)
+      .join('\n');
+    throw new Error(`This backlog file has ${result.error.issues.length} problem(s):\n${detail}`);
+  }
+
+  return result.data as Backlog;
 }
 
 export function backlogPath(folder: string, slug: string): string {
