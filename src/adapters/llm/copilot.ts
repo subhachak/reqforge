@@ -26,18 +26,25 @@ export class CopilotLlmAdapter implements LlmPort {
     const selector: vscode.LanguageModelChatSelector = { vendor: 'copilot' };
     if (this.preferredFamily) selector.family = this.preferredFamily;
 
-    let models = await vscode.lm.selectChatModels(selector);
+    // selectChatModels returns an empty array until the Copilot extension has
+    // finished activating, which routinely loses the race on a cold window.
+    // Nudge it awake, then retry briefly before concluding it is absent.
+    await activateCopilot();
 
-    // Fall back to any Copilot model if the requested family is not entitled.
-    if (models.length === 0 && this.preferredFamily) {
-      models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+    let models: vscode.LanguageModelChat[] = [];
+    for (let attempt = 0; attempt < 6; attempt++) {
+      models = await vscode.lm.selectChatModels(selector);
+
+      // Fall back to any Copilot model if the requested family is not entitled.
+      if (models.length === 0 && this.preferredFamily) {
+        models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+      }
+      if (models.length > 0) break;
+      await new Promise((r) => setTimeout(r, 500));
     }
 
     if (models.length === 0) {
-      throw new LlmUnavailableError(
-        'No GitHub Copilot chat model is available.',
-        'Sign in to GitHub Copilot in VS Code and confirm your account has Copilot Chat entitlement, then run "ReqForge: Check Language Model Availability".'
-      );
+      throw new LlmUnavailableError('No GitHub Copilot chat model is available.', copilotHint());
     }
 
     // Prefer the largest context window — PRDs are long.
@@ -154,6 +161,37 @@ export class CopilotLlmAdapter implements LlmPort {
     const parsed = req.parse(toolInput);
     return parsed.ok ? { ok: true, value: parsed.value } : { ok: false, error: parsed.error };
   }
+}
+
+const COPILOT_EXTENSIONS = ['GitHub.copilot-chat', 'GitHub.copilot'];
+
+function findExtension(id: string): vscode.Extension<unknown> | undefined {
+  // Extension ids are matched case-insensitively by the marketplace but not
+  // always by getExtension, so try both spellings.
+  return vscode.extensions.getExtension(id) ?? vscode.extensions.getExtension(id.toLowerCase());
+}
+
+/** Best-effort: activating Copilot is what makes its models resolvable. */
+async function activateCopilot(): Promise<void> {
+  for (const id of COPILOT_EXTENSIONS) {
+    const ext = findExtension(id);
+    if (ext && !ext.isActive) {
+      await ext.activate().then(undefined, () => undefined);
+    }
+  }
+}
+
+/** Distinguishes "not installed" from "installed but no model", which need different fixes. */
+function copilotHint(): string {
+  const installed = COPILOT_EXTENSIONS.filter((id) => findExtension(id));
+  if (installed.length === 0) {
+    return 'The GitHub Copilot extensions are not installed in this VS Code window. Install "GitHub Copilot" and "GitHub Copilot Chat" from the Extensions view, then re-run this command.';
+  }
+  const active = installed.filter((id) => findExtension(id)?.isActive);
+  if (active.length === 0) {
+    return `Copilot is installed (${installed.join(', ')}) but did not activate. Open Copilot Chat once in this window, then re-run this command.`;
+  }
+  return `Copilot is installed and active (${active.join(', ')}) but exposes no chat model. This usually means you are not signed in to GitHub, or the account has no Copilot Chat entitlement. Check the Copilot status in the status bar, then re-run this command.`;
 }
 
 function toCancellationToken(token?: LlmCancellation): vscode.CancellationToken {
