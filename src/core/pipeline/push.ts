@@ -162,12 +162,16 @@ async function applyOne(
   }
 
   const isEpic = level === 'epic';
-  const markdown = isEpic ? epicToMarkdown(item as EpicItem) : storyToMarkdown(item as StoryItem);
-  const hash = isEpic ? epicFingerprint(item as EpicItem) : storyFingerprint(item as StoryItem);
-  const label = stampLabel(backlog.source.pageId, item.ref);
-  const issueType = isEpic ? backlog.target.epicIssueType : backlog.target.storyIssueType;
 
   try {
+    // Rendering happens inside the try: a malformed item must be recorded as a
+    // single failed item, not abort the whole push and lose the keys of
+    // everything already created.
+    const markdown = isEpic ? epicToMarkdown(item as EpicItem) : storyToMarkdown(item as StoryItem);
+    const hash = isEpic ? epicFingerprint(item as EpicItem) : storyFingerprint(item as StoryItem);
+    const label = stampLabel(backlog.source.pageId, item.ref);
+    const issueType = isEpic ? backlog.target.epicIssueType : backlog.target.storyIssueType;
+
     if (action.verb === 'create') {
       progress?.report(`Creating ${level}: ${item.title}`);
       const ref = await atlassian.createIssue({
