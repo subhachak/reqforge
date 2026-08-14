@@ -1,0 +1,174 @@
+{
+  "name": "reqforge",
+  "displayName": "ReqForge",
+  "description": "Decompose Confluence PRDs into Jira epics and stories, and refine existing ones.",
+  "version": "0.1.0",
+  "publisher": "reqforge",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.99.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "configuration": {
+      "title": "ReqForge",
+      "properties": {
+        "reqforge.atlassian.baseUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Atlassian Cloud site base URL, e.g. `https://acme.atlassian.net`."
+        },
+        "reqforge.atlassian.email": {
+          "type": "string",
+          "default": "",
+          "description": "Atlassian account email used with the API token. The token itself is stored in the OS keychain, never in settings."
+        },
+        "reqforge.atlassian.transport": {
+          "type": "string",
+          "enum": [
+            "rest",
+            "mcp"
+          ],
+          "default": "rest",
+          "markdownDescription": "How to talk to Atlassian. `mcp` is only available in the full build."
+        },
+        "reqforge.jira.projectKey": {
+          "type": "string",
+          "default": "",
+          "description": "Target Jira project key, e.g. ACME."
+        },
+        "reqforge.jira.epicIssueType": {
+          "type": "string",
+          "default": "Epic",
+          "description": "Issue type name used for epics."
+        },
+        "reqforge.jira.storyIssueType": {
+          "type": "string",
+          "default": "Story",
+          "description": "Issue type name used for stories."
+        },
+        "reqforge.llm.provider": {
+          "type": "string",
+          "enum": [
+            "copilot",
+            "anthropic",
+            "fixture"
+          ],
+          "default": "copilot",
+          "markdownDescription": "Language model backend. `anthropic` is only available in the full build. `fixture` replays recorded responses for offline demos."
+        },
+        "reqforge.llm.modelFamily": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional Copilot model family to prefer, e.g. `gpt-4o` or `claude-sonnet-4`. Leave blank to use the first available."
+        },
+        "reqforge.push.dryRunDefault": {
+          "type": "boolean",
+          "default": true,
+          "description": "Push commands preview changes instead of writing to Jira unless explicitly confirmed."
+        },
+        "reqforge.workspaceFolder": {
+          "type": "string",
+          "default": ".reqforge",
+          "description": "Workspace-relative folder where proposals and the trace file are stored."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "reqforge.setCredentials",
+        "title": "ReqForge: Set Atlassian API Token"
+      },
+      {
+        "command": "reqforge.clearCredentials",
+        "title": "ReqForge: Clear Atlassian API Token"
+      },
+      {
+        "command": "reqforge.checkModel",
+        "title": "ReqForge: Check Language Model Availability"
+      },
+      {
+        "command": "reqforge.decomposePrd",
+        "title": "ReqForge: Decompose Confluence PRD into Epics"
+      },
+      {
+        "command": "reqforge.decomposeEpic",
+        "title": "ReqForge: Decompose Epic into Stories"
+      },
+      {
+        "command": "reqforge.refineIssue",
+        "title": "ReqForge: Refine Existing Issue"
+      },
+      {
+        "command": "reqforge.push",
+        "title": "ReqForge: Push Backlog to Jira"
+      },
+      {
+        "command": "reqforge.pushDryRun",
+        "title": "ReqForge: Preview Push (Dry Run)"
+      },
+      {
+        "command": "reqforge.refresh",
+        "title": "ReqForge: Refresh Backlog View",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "reqforge.openItem",
+        "title": "ReqForge: Open Item"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "reqforge",
+          "title": "ReqForge",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "reqforge": [
+        {
+          "id": "reqforge.backlog",
+          "name": "Backlog"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "reqforge.refresh",
+          "when": "view == reqforge.backlog",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "smoke": "node scripts/smoke.mjs",
+    "check": "npm run typecheck && npm run smoke && npm run build",
+    "build": "node esbuild.mjs --profile=restricted",
+    "build:full": "node esbuild.mjs --profile=full",
+    "watch": "node esbuild.mjs --profile=restricted --watch",
+    "package": "npm run typecheck && node esbuild.mjs --profile=restricted --minify && vsce package --out reqforge-restricted.vsix",
+    "package:full": "npm run typecheck && node esbuild.mjs --profile=full --minify && vsce package --out reqforge-full.vsix",
+    "vscode:prepublish": "npm run build"
+  },
+  "dependencies": {
+    "turndown": "^7.2.0",
+    "yaml": "^2.5.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "@types/turndown": "^5.0.5",
+    "@types/vscode": "^1.99.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.3"
+  }
+}

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+out/
+*.vsix
+.DS_Store
+# Backlog files are meant to be committed in the *consuming* repo, but not here.
+.reqforge/
