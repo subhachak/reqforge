@@ -151,12 +151,13 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.mjs",
+    "preflight": "node scripts/preflight.mjs",
     "check": "npm run typecheck && npm run smoke && npm run build",
     "build": "node esbuild.mjs --profile=restricted",
     "build:full": "node esbuild.mjs --profile=full",
     "watch": "node esbuild.mjs --profile=restricted --watch",
-    "package": "npm run typecheck && node esbuild.mjs --profile=restricted --minify && vsce package --out reqforge-restricted.vsix",
-    "package:full": "npm run typecheck && node esbuild.mjs --profile=full --minify && vsce package --out reqforge-full.vsix",
+    "package": "npm run typecheck && node esbuild.mjs --profile=restricted --minify && npx --yes @vscode/vsce package --out reqforge-restricted.vsix",
+    "package:full": "npm run typecheck && node esbuild.mjs --profile=full --minify && npx --yes @vscode/vsce package --out reqforge-full.vsix",
     "vscode:prepublish": "npm run build"
   },
   "dependencies": {
