@@ -85,6 +85,7 @@ export function parseEpicMarkdown(key: string, summary: string, markdown: string
   const outcomeMatch = text.match(/^\*Outcome:\*\s*(.+?)\s*$/m);
   const description = text
     .replace(/^\*Outcome:\*.*$/m, '')
+    .replace(/^\*Priority:\*.*$/m, '')
     .trim();
 
   const sizingMatch = clean.match(/Sizing:\s*(S|M|L|XL)\b/i);
@@ -94,9 +95,13 @@ export function parseEpicMarkdown(key: string, summary: string, markdown: string
     title: summary,
     outcome: outcomeMatch?.[1]?.trim() ?? '',
     description,
+    priority: priorityFrom(clean),
     inScope: bullets(sections.get('in scope')),
     outOfScope: bullets(sections.get('out of scope')),
+    successMeasures: bullets(sections.get('success measures')),
     acceptanceCriteria: criteria(sections.get('acceptance criteria')),
+    nonFunctional: bullets(sections.get('non-functional requirements')),
+    assumptions: bullets(sections.get('assumptions')),
     dependsOn: bullets(sections.get('depends on')),
     sizing: (sizingMatch?.[1]?.toUpperCase() as EpicProposal['sizing']) ?? 'M',
     openQuestions: bullets(sections.get('open questions')),
@@ -113,13 +118,23 @@ export function parseEpicMarkdown(key: string, summary: string, markdown: string
  */
 function narrativeFrom(text: string): { asA: string; iWant: string; soThat: string } {
   const grab = (label: string): string => {
+    // Stops at the next narrative marker, at any following field line such as
+    // *Priority:*, at a blank line, or at the end. Without the extra stops a
+    // lazy match runs to the end of the text and swallows whatever follows.
     const re = new RegExp(
-      `\\*\\*${label}\\*\\*\\s*([\\s\\S]*?)\\s*(?=\\*\\*(?:As a|I want|So that)\\*\\*|$)`,
+      `\\*\\*${label}\\*\\*\\s*([\\s\\S]*?)\\s*(?=\\*\\*(?:As a|I want|So that)\\*\\*|\\*[A-Z][a-z]+:\\*|\\n\\s*\\n|$)`,
       'i'
     );
     return text.match(re)?.[1]?.trim() ?? '';
   };
   return { asA: grab('As a'), iWant: grab('I want'), soThat: grab('So that') };
+}
+
+const PRIORITIES = ['Must', 'Should', 'Could'] as const;
+
+function priorityFrom(markdown: string): (typeof PRIORITIES)[number] {
+  const found = markdown.match(/^\*Priority:\*\s*(Must|Should|Could)\b/im)?.[1];
+  return (PRIORITIES.find((p) => p.toLowerCase() === found?.toLowerCase()) ?? 'Should');
 }
 
 const POINTS = new Set([1, 2, 3, 5, 8, 13]);
@@ -138,6 +153,7 @@ export function parseStoryMarkdown(
 
   const description = text
     .replace(/^\*\*(As a|I want|So that)\*\*.*$/gm, '')
+    .replace(/^\*Priority:\*.*$/m, '')
     .trim();
 
   const rawPoints = Number(clean.match(/Estimate:\s*(\d+)\s*points/i)?.[1]);
@@ -149,9 +165,12 @@ export function parseStoryMarkdown(
     title: summary,
     narrative: { asA, iWant, soThat },
     description,
+    priority: priorityFrom(clean),
     // The schema requires at least one criterion; an empty placeholder keeps a
     // hand-written issue loadable, and the rubric immediately flags it.
     acceptanceCriteria: parsedCriteria.length > 0 ? parsedCriteria : [{ given: '', when: '', then: '' }],
+    assumptions: bullets(sections.get('assumptions')),
+    dependsOn: bullets(sections.get('depends on')),
     points: (POINTS.has(rawPoints) ? rawPoints : 3) as StoryProposal['points'],
     openQuestions: bullets(sections.get('open questions'))
   };

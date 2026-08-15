@@ -268,7 +268,10 @@ const goodStory = {
     soThat: 'I can complete payment without finding my wallet'
   },
   description: '',
+  priority: 'Must',
   acceptanceCriteria: [{ given: 'a shopper with two saved cards', when: 'the checkout page loads', then: 'both cards are listed' }],
+  assumptions: ['Card tokens are already stored by the payment provider'],
+  dependsOn: [],
   points: 3,
   openQuestions: [],
   sync: {}
@@ -279,9 +282,13 @@ const goodEpic = {
   title: 'Saved cards at checkout',
   outcome: 'Returning shoppers pay without re-entering card details',
   description: 'Body.',
+  priority: 'Must',
   inScope: ['iOS Safari'],
   outOfScope: ['Android'],
+  successMeasures: ['Checkout abandonment down 15% within 2 quarters'],
   acceptanceCriteria: [{ given: 'a saved card', when: 'the shopper checks out', then: 'no re-entry is required' }],
+  nonFunctional: ['Checkout interactive within 2s at the 95th percentile'],
+  assumptions: ['The payment provider already tokenises cards'],
   dependsOn: [],
   sizing: 'M',
   openQuestions: [],
@@ -582,6 +589,81 @@ check('INVEST is complete and correctly named',
   const q = m.evaluateBacklog(empty, m.DEFAULT_RUBRIC).items.find((i) => i.ref === goodStory.ref);
   check('a story with no narrative is blocked by the rubric instead',
     q.blockedBy.some((b) => b.ruleId === 'has-narrative'), JSON.stringify(q.blockedBy));
+}
+
+/* -------------------------------------------------- the fields added later */
+
+{
+  // Every added field has to survive the full path: rendered into Jira, read
+  // back out through ADF, and parsed. A field that renders but does not parse
+  // is silently lost the first time somebody imports the issue.
+  const viaJira = (md) => m.adfToMarkdown(m.markdownToAdf(md));
+
+  const ep = m.parseEpicMarkdown('K-1', goodEpic.title, viaJira(m.epicToMarkdown(goodEpic)));
+  check('epic priority survives the round trip', ep.priority === 'Must', ep.priority);
+  check('epic success measures survive', ep.successMeasures.join('|') === goodEpic.successMeasures.join('|'), ep.successMeasures.join('|'));
+  check('epic non-functional requirements survive', ep.nonFunctional.join('|') === goodEpic.nonFunctional.join('|'), ep.nonFunctional.join('|'));
+  check('epic assumptions survive', ep.assumptions.join('|') === goodEpic.assumptions.join('|'), ep.assumptions.join('|'));
+  check('epic outcome still survives alongside priority', ep.outcome === goodEpic.outcome, ep.outcome);
+
+  const st = m.parseStoryMarkdown('K-2', goodStory.title, viaJira(m.storyToMarkdown(goodStory)), 'e');
+  check('story priority survives the round trip', st.priority === 'Must', st.priority);
+  check('story assumptions survive', st.assumptions.join('|') === goodStory.assumptions.join('|'), st.assumptions.join('|'));
+  check('story narrative still survives alongside priority', st.narrative.soThat === goodStory.narrative.soThat, st.narrative.soThat);
+
+  const withDeps = { ...goodStory, dependsOn: ['other-story', 'another-story'] };
+  const depBack = m.parseStoryMarkdown('K-3', withDeps.title, viaJira(m.storyToMarkdown(withDeps)), 'e');
+  check('story dependencies survive', depBack.dependsOn.join('|') === 'other-story|another-story', depBack.dependsOn.join('|'));
+
+  // Editing a new field must count as something worth sending.
+  check('changing priority changes the epic fingerprint',
+    m.epicFingerprint(goodEpic) !== m.epicFingerprint({ ...goodEpic, priority: 'Could' }));
+  check('changing success measures changes the epic fingerprint',
+    m.epicFingerprint(goodEpic) !== m.epicFingerprint({ ...goodEpic, successMeasures: ['something else'] }));
+
+  // Missing or unmeasurable measures are reported.
+  const noMeasures = m.evaluateBacklog(backlogOf([{ ...goodEpic, successMeasures: [] }]), m.DEFAULT_RUBRIC)
+    .items.find((i) => i.ref === 'good');
+  check('missing success measures warns', noMeasures.warnings.some((f) => f.ruleId === 'has-success-measures'));
+
+  const vagueMeasures = m.evaluateBacklog(backlogOf([{ ...goodEpic, successMeasures: ['users are happier'] }]), m.DEFAULT_RUBRIC)
+    .items.find((i) => i.ref === 'good');
+  check('a success measure with no number is reported',
+    vagueMeasures.warnings.some((f) => f.ruleId === 'unmeasurable-success'));
+  check('a measure with a number is accepted',
+    m.evaluateBacklog(backlogOf([goodEpic]), m.DEFAULT_RUBRIC).items.find((i) => i.ref === 'good')
+      .warnings.every((f) => f.ruleId !== 'unmeasurable-success'));
+
+  const chained = { ...goodStory, dependsOn: ['a', 'b', 'c'] };
+  const chainQ = m.evaluateBacklog(backlogOf([{ ...goodEpic, stories: [chained] }]), m.DEFAULT_RUBRIC)
+    .items.find((i) => i.ref === goodStory.ref);
+  check('a long story dependency chain is reported',
+    chainQ.warnings.some((f) => f.ruleId === 'story-dependency-chain'));
+
+  // Defaults must fill in for a file written before these fields existed.
+  const legacy = m.deserializeBacklog(`
+version: 1
+source: {kind: confluence, pageId: "1", title: T, url: u, ingestedAt: now}
+target: {projectKey: ACME}
+prd: {title: T, summary: s}
+epics:
+  - ref: old
+    title: An epic from before these fields existed
+    outcome: Something
+    description: Body.
+    acceptanceCriteria: [{given: g, when: w, then: t}]
+    stories:
+      - ref: old-story
+        epicRef: old
+        title: A story from before
+        narrative: {asA: a, iWant: b, soThat: c}
+        acceptanceCriteria: [{given: g, when: w, then: t}]
+`);
+  check('an older backlog file still loads', legacy.epics.length === 1);
+  check('priority defaults on an older epic', legacy.epics[0].priority === 'Should');
+  check('new epic lists default to empty', Array.isArray(legacy.epics[0].successMeasures) && legacy.epics[0].successMeasures.length === 0);
+  check('priority defaults on an older story', legacy.epics[0].stories[0].priority === 'Should');
+  check('an older backlog renders without throwing', m.epicToMarkdown(legacy.epics[0]).includes('Priority:'));
 }
 
 /* ------------------------------------------------------------ terminology */

@@ -112,6 +112,20 @@ function Grow(props: { value: string; onChange: (v: string) => void; placeholder
   );
 }
 
+const PRIORITIES = ['Must', 'Should', 'Could'] as const;
+
+function PriorityPicker(props: { value: string; onChange: (v: 'Must' | 'Should' | 'Could') => void }) {
+  return (
+    <select value={props.value} onChange={(e) => props.onChange(e.target.value as 'Must' | 'Should' | 'Could')}>
+      {PRIORITIES.map((p) => (
+        <option key={p} value={p}>
+          {p}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function Field(props: { label: string; hint?: string; name?: string; children: React.ReactNode }) {
   return (
     <div className="field" data-field={props.name}>
@@ -503,17 +517,44 @@ function StoryCard(props: {
             <AcEditor items={s.acceptanceCriteria} onChange={(v) => patch({ acceptanceCriteria: v })} />
           </Field>
 
-          <Field label="Estimate">
-            <select
-              value={String(s.points)}
-              onChange={(e) => patch({ points: Number(e.target.value) as StoryItem['points'] })}
-            >
-              {[1, 2, 3, 5, 8, 13].map((p) => (
-                <option key={p} value={p}>
-                  {p} points
-                </option>
-              ))}
-            </select>
+          <div className="row">
+            <div style={{ flex: 1 }}>
+              <Field label="Priority" name="priority">
+                <PriorityPicker value={s.priority ?? 'Should'} onChange={(v) => patch({ priority: v })} />
+              </Field>
+            </div>
+            <div style={{ flex: 1 }}>
+              <Field label="Estimate">
+                <select
+                  value={String(s.points)}
+                  onChange={(e) => patch({ points: Number(e.target.value) as StoryItem['points'] })}
+                >
+                  {[1, 2, 3, 5, 8, 13].map((p) => (
+                    <option key={p} value={p}>
+                      {p} points
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+          </div>
+
+          <Field label="Assumptions" hint="taken as true in order to proceed" name="assumptions">
+            <ListEditor
+              items={s.assumptions ?? []}
+              onChange={(v) => patch({ assumptions: v })}
+              placeholder="What are you taking as given?"
+              addLabel="Add assumption"
+            />
+          </Field>
+
+          <Field label="Depends on" hint="other stories that must land first — fewer is better" name="dependsOn">
+            <ListEditor
+              items={s.dependsOn ?? []}
+              onChange={(v) => patch({ dependsOn: v })}
+              placeholder="Another story this one needs"
+              addLabel="Add dependency"
+            />
           </Field>
 
           {s.openQuestions.length > 0 && (
@@ -635,14 +676,32 @@ function EpicDetail(props: {
         <Grow value={e.description} onChange={(v) => patch({ description: v })} rows={4} />
       </Field>
 
-      <Field label="Size">
-        <select value={e.sizing} onChange={(ev) => patch({ sizing: ev.target.value as EpicItem['sizing'] })}>
-          {(['S', 'M', 'L', 'XL'] as const).map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+      <div className="row">
+        <div style={{ flex: 1 }}>
+          <Field label="Priority" hint="MoSCoW, as the requirements state it" name="priority">
+            <PriorityPicker value={e.priority ?? 'Should'} onChange={(v) => patch({ priority: v })} />
+          </Field>
+        </div>
+        <div style={{ flex: 1 }}>
+          <Field label="Size">
+            <select value={e.sizing} onChange={(ev) => patch({ sizing: ev.target.value as EpicItem['sizing'] })}>
+              {(['S', 'M', 'L', 'XL'] as const).map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+      </div>
+
+      <Field label="Success measures" hint="how you would know the outcome happened" name="successMeasures">
+        <ListEditor
+          items={e.successMeasures ?? []}
+          onChange={(v) => patch({ successMeasures: v })}
+          placeholder="e.g. call volume down 40% against the pre-launch baseline"
+          addLabel="Add measure"
+        />
       </Field>
 
       <Field label="In scope">
@@ -665,6 +724,28 @@ function EpicDetail(props: {
 
       <Field label="Acceptance criteria" name="acceptanceCriteria">
         <AcEditor items={e.acceptanceCriteria} onChange={(v) => patch({ acceptanceCriteria: v })} />
+      </Field>
+
+      <Field
+        label="Non-functional requirements"
+        hint="performance, availability, accessibility, security"
+        name="nonFunctional"
+      >
+        <ListEditor
+          items={e.nonFunctional ?? []}
+          onChange={(v) => patch({ nonFunctional: v })}
+          placeholder="e.g. dashboard interactive within 2s at the 95th percentile"
+          addLabel="Add requirement"
+        />
+      </Field>
+
+      <Field label="Assumptions" hint="taken as true in order to proceed — not the same as an open question" name="assumptions">
+        <ListEditor
+          items={e.assumptions ?? []}
+          onChange={(v) => patch({ assumptions: v })}
+          placeholder="e.g. member email addresses in the system of record are accurate"
+          addLabel="Add assumption"
+        />
       </Field>
 
       {e.openQuestions.length > 0 && (

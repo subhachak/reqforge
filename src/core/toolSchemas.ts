@@ -75,6 +75,29 @@ export const EPICS_SCHEMA = {
             description: 'The user- or business-facing change that exists once this epic ships. Not a list of tasks.'
           },
           description: { type: 'string', description: 'Two to four paragraphs of markdown.' },
+          priority: {
+            type: 'string',
+            enum: ['Must', 'Should', 'Could'],
+            description: 'MoSCoW. Use the source document\'s own priority where it states one.'
+          },
+          successMeasures: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'How anyone would know the outcome happened. Measurable, with a number and a timeframe where the document gives one, e.g. "call volume down 40% against the pre-launch baseline". Not a restatement of the outcome.'
+          },
+          nonFunctional: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Performance, availability, accessibility, security, data residency and similar constraints that apply to this epic. Quote the document\'s figures rather than inventing thresholds.'
+          },
+          assumptions: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Things being taken as true in order to proceed. Different from an open question: an assumption is a decision, a question is unresolved. Do not duplicate between the two.'
+          },
           inScope: { type: 'array', items: { type: 'string' } },
           outOfScope: {
             type: 'array',
@@ -96,7 +119,7 @@ export const EPICS_SCHEMA = {
               'Short verbatim quotes from the source document that justify this epic. If you cannot quote the source, do not propose the epic.'
           }
         },
-        required: ['ref', 'title', 'outcome', 'description', 'acceptanceCriteria', 'sizing']
+        required: ['ref', 'title', 'outcome', 'description', 'priority', 'acceptanceCriteria', 'successMeasures', 'sizing']
       }
     }
   },
@@ -125,11 +148,27 @@ export const STORIES_SCHEMA = {
             required: ['asA', 'iWant', 'soThat']
           },
           description: { type: 'string' },
+          priority: {
+            type: 'string',
+            enum: ['Must', 'Should', 'Could'],
+            description: 'MoSCoW. Inherit the epic\'s priority unless this story is plainly less or more urgent.'
+          },
           acceptanceCriteria,
+          assumptions: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Things being taken as true in order to proceed. Not the same as an open question.'
+          },
+          dependsOn: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'refs of other stories that must land first. Leave empty wherever you can — a story that depends on nothing is worth more than one that does.'
+          },
           points: { type: 'number', enum: [1, 2, 3, 5, 8, 13] },
           openQuestions: { type: 'array', items: { type: 'string' } }
         },
-        required: ['ref', 'epicRef', 'title', 'narrative', 'acceptanceCriteria', 'points']
+        required: ['ref', 'epicRef', 'title', 'narrative', 'priority', 'acceptanceCriteria', 'points']
       }
     }
   },

@@ -48,6 +48,12 @@ export function proposeEpicsPrompt(skeleton: PrdSkeleton, markdown: string): str
     '- It is large enough to hold several stories, small enough to ship in a quarter.',
     '- Its acceptance criteria are observable, not internal implementation checks.',
     '',
+    'For each epic also record:',
+    '- Success measures: how anyone would know the outcome happened. Use the document\'s own numbers and timeframes where it gives them; leave empty rather than inventing a target.',
+    '- Non-functional requirements that apply to this epic, quoting the document\'s figures.',
+    '- Assumptions being made in order to proceed. An assumption is a decision; an open question is unresolved. Do not put the same thing in both.',
+    '- Priority in MoSCoW terms, following the document where it states one.',
+    '',
     'Avoid:',
     '- Layer-shaped epics ("build the database", "build the API", "build the UI"). Slice by outcome.',
     '- Epics that only restate a goal without describing what gets built.',
@@ -122,6 +128,10 @@ export function proposeStoriesPrompt(epics: EpicItem[], skeleton: PrdSkeleton): 
     '- Be sized so one pair could finish it inside a single sprint.',
     '- Name a concrete role in the "as a" clause, drawn from the personas below.',
     '- Have acceptance criteria that a QA engineer could execute without asking questions.',
+    '',
+    'Also record, per story: priority in MoSCoW terms, any assumptions being made, and any other ' +
+      'stories that must land first. Leave dependencies empty wherever you honestly can — a story ' +
+      'that depends on nothing is worth more than one that does, and Independence is scored.',
     '',
     'Include the unglamorous work — migrations, error states, empty states, permissions, ' +
       'observability — where the epic implies it. Do not include generic boilerplate stories ' +

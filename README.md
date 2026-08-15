@@ -214,6 +214,40 @@ Removing it is a deliberate act, from the home screen.
 
 ---
 
+## What an epic and a story hold
+
+Defined in `src/core/schemas.ts` — `EpicProposalSchema` and `StoryProposalSchema` are the source
+of truth for both.
+
+| | Epic | Story |
+|---|---|---|
+| Identity | ref, title | ref, epicRef, title |
+| Intent | outcome, description | narrative (as a / I want / so that), description |
+| Ordering | priority (MoSCoW), sizing | priority (MoSCoW), points |
+| Boundaries | inScope, outOfScope | — |
+| Evidence | successMeasures, acceptanceCriteria, sourceEvidence | acceptanceCriteria |
+| Constraints | nonFunctional, assumptions, dependsOn | assumptions, dependsOn |
+| Unknowns | openQuestions | openQuestions |
+
+**Adding a field touches eight files**, and missing one fails quietly rather than loudly:
+
+1. `core/schemas.ts` — the field and its validation
+2. `core/toolSchemas.ts` — the JSON Schema the model fills. Hand-written and kept in step by hand
+3. `core/model.ts` — the renderer, which is what reaches Jira; and the fingerprint, if editing the
+   field should mark the item as needing a push
+4. `core/pipeline/parseIssue.ts` — the inverse parser, or importing the issue back silently drops it
+5. `core/prompts.ts` — what good looks like, or the model fills it plausibly rather than well
+6. `webview/index.tsx` — the editor
+7. `core/rubric/rules.ts` — a rule about it, if one is warranted
+8. `core/pipeline/refineLocal.ts` — whether a rewrite may touch it, as `sourceEvidence` may not
+
+Every field also costs prompt tokens on every call and another thing a product owner has to read,
+which is the argument for adding few.
+
+**Known gap:** `priority` and `points` are rendered into the description, not written to Jira's own
+priority and story-point fields. Both need per-instance field discovery, since the story-point
+field id differs between instances.
+
 ## Quality rubric
 
 Every item is scored, and items must pass a threshold before they can be sent to Jira.

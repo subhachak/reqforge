@@ -124,6 +124,26 @@ const EPIC_RULES: Rule<EpicItem>[] = [
     }
   },
   {
+    id: 'has-success-measures',
+    severity: 'warn',
+    field: 'successMeasures',
+    check: (e) =>
+      (e.successMeasures ?? []).length > 0
+        ? undefined
+        : 'No success measures — nothing here says how you would know the outcome happened.'
+  },
+  {
+    id: 'unmeasurable-success',
+    severity: 'info',
+    field: 'successMeasures',
+    check: (e) => {
+      const vague = (e.successMeasures ?? []).filter((mm) => !/\d/.test(mm));
+      return vague.length
+        ? `${vague.length} success measure(s) contain no number, so nobody can tell whether they were met.`
+        : undefined;
+    }
+  },
+  {
     id: 'has-out-of-scope',
     severity: 'warn',
     field: 'outOfScope',
@@ -244,6 +264,15 @@ const STORY_RULES: Rule<StoryItem>[] = [
     id: 'too-large',
     severity: 'warn',
     check: (s) => (s.points >= 13 ? `${s.points} points — too large to be one story.` : undefined)
+  },
+  {
+    id: 'story-dependency-chain',
+    severity: 'info',
+    field: 'dependsOn',
+    check: (s) =>
+      (s.dependsOn ?? []).length > 2
+        ? `Depends on ${s.dependsOn.length} other stories, which is rarely independently deliverable.`
+        : undefined
   },
   {
     id: 'vague-acceptance-criteria',

@@ -11,6 +11,9 @@ export const AcceptanceCriterionSchema = z.object({
   then: z.string().min(1)
 });
 
+/** MoSCoW, because that is what requirements documents already use. */
+export const PrioritySchema = z.enum(['Must', 'Should', 'Could']).default('Should');
+
 export const EpicProposalSchema = z.object({
   /** Stable slug derived by the model; used for idempotency before a Jira key exists. */
   ref: z
@@ -26,9 +29,16 @@ export const EpicProposalSchema = z.object({
    */
   outcome: z.string().default(''),
   description: z.string().default(''),
+  priority: PrioritySchema,
   inScope: z.array(z.string()).default([]),
   outOfScope: z.array(z.string()).default([]),
+  /** How anyone would know the outcome actually happened. Measurable, not aspirational. */
+  successMeasures: z.array(z.string()).default([]),
   acceptanceCriteria: z.array(AcceptanceCriterionSchema).default([]),
+  /** Performance, availability, accessibility, security — the half that gets lost. */
+  nonFunctional: z.array(z.string()).default([]),
+  /** Decisions taken in order to proceed. Distinct from an unresolved question. */
+  assumptions: z.array(z.string()).default([]),
   dependsOn: z.array(z.string()).default([]).describe('refs of other epics this one depends on'),
   sizing: z.enum(['S', 'M', 'L', 'XL']).default('M'),
   openQuestions: z.array(z.string()).default([]),
@@ -57,7 +67,15 @@ export const StoryProposalSchema = z.object({
     soThat: z.string().default('')
   }),
   description: z.string().default(''),
+  priority: PrioritySchema,
   acceptanceCriteria: z.array(AcceptanceCriterionSchema).min(1),
+  /** Decisions taken in order to proceed. Distinct from an unresolved question. */
+  assumptions: z.array(z.string()).default([]),
+  /**
+   * refs of other stories this one needs first. INVEST scores Independence, so
+   * there has to be somewhere to record the dependency being judged.
+   */
+  dependsOn: z.array(z.string()).default([]),
   points: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(5), z.literal(8), z.literal(13)]).default(3),
   openQuestions: z.array(z.string()).default([])
 });
@@ -143,4 +161,5 @@ export type AcceptanceCriterion = z.infer<typeof AcceptanceCriterionSchema>;
 export type EpicProposal = z.infer<typeof EpicProposalSchema>;
 export type StoryProposal = z.infer<typeof StoryProposalSchema>;
 export type PrdSkeleton = z.infer<typeof PrdSkeletonSchema>;
+export type Priority = z.infer<typeof PrioritySchema>;
 export type Critique = z.infer<typeof CritiqueSchema>;

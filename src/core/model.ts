@@ -70,7 +70,11 @@ export function epicFingerprint(epic: EpicProposal): string {
     outcome: epic.outcome,
     ac: epic.acceptanceCriteria,
     inScope: epic.inScope,
-    outOfScope: epic.outOfScope
+    outOfScope: epic.outOfScope,
+    priority: epic.priority,
+    successMeasures: epic.successMeasures,
+    nonFunctional: epic.nonFunctional,
+    assumptions: epic.assumptions
   });
 }
 
@@ -80,7 +84,10 @@ export function storyFingerprint(story: StoryProposal): string {
     narrative: story.narrative,
     description: story.description,
     ac: story.acceptanceCriteria,
-    points: story.points
+    points: story.points,
+    priority: story.priority,
+    assumptions: story.assumptions,
+    dependsOn: story.dependsOn
   });
 }
 
@@ -110,7 +117,10 @@ export function isPending(sync: SyncState, currentHash: string): boolean {
 /** Renders an epic to the markdown that becomes its Jira description. */
 export function epicToMarkdown(epic: EpicProposal): string {
   const out: string[] = [];
-  out.push(`*Outcome:* ${epic.outcome}`, '', epic.description ?? '', '');
+  out.push(`*Outcome:* ${epic.outcome}`, `*Priority:* ${epic.priority ?? 'Should'}`, '', epic.description ?? '', '');
+  if (list(epic.successMeasures).length) {
+    out.push('## Success measures', ...epic.successMeasures.map((s) => `- ${s}`), '');
+  }
   if (list(epic.inScope).length) {
     out.push('## In scope', ...epic.inScope.map((s) => `- ${s}`), '');
   }
@@ -123,6 +133,12 @@ export function epicToMarkdown(epic: EpicProposal): string {
       out.push(`- **Given** ${ac.given} **when** ${ac.when} **then** ${ac.then}`);
     }
     out.push('');
+  }
+  if (list(epic.nonFunctional).length) {
+    out.push('## Non-functional requirements', ...epic.nonFunctional.map((n) => `- ${n}`), '');
+  }
+  if (list(epic.assumptions).length) {
+    out.push('## Assumptions', ...epic.assumptions.map((a) => `- ${a}`), '');
   }
   if (list(epic.dependsOn).length) {
     out.push('## Depends on', ...epic.dependsOn.map((d) => `- ${d}`), '');
@@ -141,6 +157,7 @@ export function storyToMarkdown(story: StoryProposal): string {
     `**As a** ${story.narrative.asA}`,
     `**I want** ${story.narrative.iWant}`,
     `**So that** ${story.narrative.soThat}`,
+    `*Priority:* ${story.priority ?? 'Should'}`,
     ''
   );
   if (story.description?.trim()) {
@@ -152,6 +169,12 @@ export function storyToMarkdown(story: StoryProposal): string {
       out.push(`- **Given** ${ac.given} **when** ${ac.when} **then** ${ac.then}`);
     }
     out.push('');
+  }
+  if (list(story.assumptions).length) {
+    out.push('## Assumptions', ...story.assumptions.map((a) => `- ${a}`), '');
+  }
+  if (list(story.dependsOn).length) {
+    out.push('## Depends on', ...story.dependsOn.map((d) => `- ${d}`), '');
   }
   if (list(story.openQuestions).length) {
     out.push('## Open questions', ...story.openQuestions.map((q) => `- ${q}`), '');
