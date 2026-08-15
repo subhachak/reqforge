@@ -6,7 +6,7 @@
  *   node scripts/smoke.mjs
  */
 import * as esbuild from 'esbuild';
-import { writeFileSync, mkdtempSync } from 'node:fs';
+import { writeFileSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -31,6 +31,7 @@ export { parseEpicMarkdown, parseStoryMarkdown } from '${path.resolve('src/core/
 export { backlogFromJiraIssue, markAsSynced } from '${path.resolve('src/core/pipeline/fromJira.ts')}';
 export { ALL_CRITERIA } from '${path.resolve('src/core/rubric/criteria.ts')}';
 export { planPush } from '${path.resolve('src/core/pipeline/push.ts')}';
+export { improveBacklog, describeStop } from '${path.resolve('src/core/pipeline/improve.ts')}';
 
 export { STORY_CRITERIA, EPIC_CRITERIA } from '${path.resolve('src/core/rubric/criteria.ts')}';
 `
@@ -745,6 +746,112 @@ epics:
   check('all three criteria survive', back.acceptanceCriteria.length === 3);
   check('changing technical notes changes the fingerprint',
     m.storyFingerprint(goodStory) !== m.storyFingerprint({ ...goodStory, technicalNotes: ['different'] }));
+}
+
+/* ------------------------------------------------- the goal-seeking loop */
+
+/**
+ * A scripted model. `ratingFor` decides what each assessment returns, so a test
+ * can make the loop succeed, stall, or run forever — and forever is the one the
+ * bounds exist for.
+ */
+function fakeLlm(ratingFor) {
+  let round = 0;
+  let calls = 0;
+  const api = {
+    kind: 'fixture',
+    async probe() { return { ok: true, detail: '' }; },
+    async contextWindow() { return 100000; },
+    async countTokens(t) { return Math.ceil(t.length / 4); },
+    async requestStructured(req) {
+      calls++;
+      if (req.toolName === 'emit_quality_assessment') {
+        round++;
+        const level = req.inputSchema.properties.assessments.items.properties.criteria.items.properties.id.enum[0].startsWith('epic-')
+          ? 'epic' : 'story';
+        const defs = level === 'epic' ? m.EPIC_CRITERIA : m.STORY_CRITERIA;
+        // One assessment per item mentioned in the prompt.
+        const refs = [...req.messages[0].content.matchAll(/<item ref="([^"]+)">/g)].map((x) => x[1]);
+        const payload = {
+          assessments: refs.map((ref) => ({
+            ref,
+            criteria: defs.map((c) => ({
+              id: c.id,
+              rating: ratingFor(round, ref),
+              justification: 'because',
+              suggestion: 'do better'
+            }))
+          }))
+        };
+        const parsed = req.parse(payload);
+        if (!parsed.ok) throw new Error('fake assessment rejected: ' + parsed.error);
+        return parsed.value;
+      }
+      // A rewrite: return the item essentially unchanged but with a new title,
+      // which is enough for the loop to see it as changed.
+      const base = req.toolName === 'emit_epic'
+        ? { ...goodEpic, title: `${goodEpic.title} (v${calls})` }
+        : { ...goodStory, title: `${goodStory.title} (v${calls})` };
+      const parsed = req.parse(base);
+      if (!parsed.ok) throw new Error('fake rewrite rejected: ' + parsed.error);
+      return parsed.value;
+    },
+    get calls() { return calls; }
+  };
+  return api;
+}
+
+{
+  const cfg = { ...m.DEFAULT_RUBRIC, threshold: 70 };
+
+  // Improves on the second assessment: the loop should stop as soon as it passes.
+  const improving = fakeLlm((round) => (round <= 1 ? 1 : 3));
+  const b1 = backlogOf([{ ...goodEpic, stories: [] }]);
+  const r1 = await m.improveBacklog(improving, b1, cfg, new Map(), { maxIterations: 3, maxRequests: 40 });
+  check('improve: stops once the goal is met', r1.stoppedBecause === 'goal-met', r1.stoppedBecause);
+  check('improve: reports the score moving', r1.scoreAfter > r1.scoreBefore, `${r1.scoreBefore} -> ${r1.scoreAfter}`);
+  check('improve: reports what it rewrote', r1.steps.length >= 1 && r1.steps[0].scoreAfter > r1.steps[0].scoreBefore);
+  check('improve: counts its own requests', r1.requests > 0);
+
+  // Never improves: it must notice rather than spend the whole budget.
+  const stuck = fakeLlm(() => 1);
+  const b2 = backlogOf([{ ...goodEpic, stories: [] }]);
+  const r2 = await m.improveBacklog(stuck, b2, cfg, new Map(), { maxIterations: 5, maxRequests: 100 });
+  check('improve: stops when a pass changes nothing', r2.stoppedBecause === 'no-progress', r2.stoppedBecause);
+  check('improve: gives up early rather than using the whole budget', r2.requests < 20, String(r2.requests));
+
+  // A tight budget must stop it mid-run.
+  const budgeted = fakeLlm(() => 1);
+  const b3 = backlogOf([{ ...goodEpic, stories: [goodStory] }]);
+  const r3 = await m.improveBacklog(budgeted, b3, cfg, new Map(), { maxIterations: 5, maxRequests: 3 });
+  check('improve: honours the request budget', r3.requests <= 4, String(r3.requests));
+  check('improve: says the budget stopped it',
+    ['request-limit', 'no-progress'].includes(r3.stoppedBecause), r3.stoppedBecause);
+
+  // Nothing to do is not a failure.
+  const already = fakeLlm(() => 3);
+  const b4 = backlogOf([{ ...goodEpic, stories: [] }]);
+  const r4 = await m.improveBacklog(already, b4, cfg, new Map(), {});
+  check('improve: does nothing when everything already passes',
+    r4.stoppedBecause === 'nothing-to-do' && r4.steps.length === 0, r4.stoppedBecause);
+
+  // Cancellation keeps what it already did.
+  const cancelling = fakeLlm(() => 1);
+  const b5 = backlogOf([{ ...goodEpic, stories: [] }]);
+  const r5 = await m.improveBacklog(cancelling, b5, cfg, new Map(), {
+    token: { isCancellationRequested: true, onCancellationRequested: () => ({ dispose() {} }) }
+  });
+  check('improve: cancellation stops it', r5.stoppedBecause === 'cancelled', r5.stoppedBecause);
+
+  check('improve: every stop reason has an explanation',
+    ['goal-met','no-progress','iteration-limit','request-limit','cancelled','nothing-to-do']
+      .every((why) => m.describeStop(why, cfg).length > 20));
+
+  // The loop must never reach Jira. planPush is the only route there, and the
+  // improve module must not be able to call it.
+  const src = readFileSync('src/core/pipeline/improve.ts', 'utf8');
+  check('improve: cannot push to Jira',
+    !/executePush|planPush|AtlassianPort|createIssue|updateIssue/.test(src));
 }
 
 /* ------------------------------------------------------------ terminology */

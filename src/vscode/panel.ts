@@ -8,6 +8,7 @@ import { applyRefinement, refineBacklogItem, type LocalRefineResult } from '../c
 import { LlmUnavailableError, type AtlassianPort, type LlmPort } from '../core/ports';
 import { BacklogStore } from '../core/store';
 import { backlogFromJiraIssue, markAsSynced } from '../core/pipeline/fromJira';
+import { describeStop, improveBacklog, type ImproveResult } from '../core/pipeline/improve';
 import {
   ALL_CRITERIA,
   DEFAULT_RUBRIC,
@@ -98,6 +99,7 @@ export class BacklogPanel {
   private slug: string | undefined;
   private plan: PushPlan | undefined;
   private pendingRefine: LocalRefineResult | undefined;
+  private improveReport: ImproveResult | undefined;
   private notice: PanelState['notice'];
   private busy = false;
   private busyLabel = '';
@@ -231,6 +233,9 @@ export class BacklogPanel {
       undoLabel: this.history[this.history.length - 1]?.label,
       redoLabel: this.future[this.future.length - 1]?.label,
       quality: this.quality(),
+      improveReport: this.improveReport
+        ? { ...this.improveReport, stopExplanation: describeStop(this.improveReport.stoppedBecause, this.rubric) }
+        : undefined,
       criteria: ALL_CRITERIA,
       rubric: {
         threshold: this.rubric.threshold,
@@ -356,6 +361,45 @@ export class BacklogPanel {
         message: `Quality review complete — average ${q.score}, ${q.passed} of ${q.passed + q.failed} items at or above ${q.threshold}.`,
         hint: q.failed > 0 ? `${q.failed} item(s) need work before they can be sent.` : undefined
       };
+    });
+  }
+
+  /**
+   * Runs the goal-seeking loop.
+   *
+   * One snapshot before it starts, so a whole run is a single undo. Nothing is
+   * sent to Jira — the loop only edits locally, and sending stays a human
+   * decision taken against a plan.
+   */
+  private async improve(only?: string[]) {
+    if (!this.backlog) return;
+    this.snapshot('improve backlog');
+
+    await this.run('Improving the backlog…', async () => {
+      const { llm } = await this.ports();
+      const result = await improveBacklog(llm, this.backlog!, this.rubric, this.assessments, {
+        only,
+        progress: {
+          report: (message) => {
+            this.busyLabel = message;
+            void this.send();
+          }
+        }
+      });
+
+      this.assessments = result.assessments;
+      await this.saveQuality();
+      await this.save();
+      this.improveReport = result;
+
+      this.out.appendLine(
+        `\nImprove: ${result.iterations} pass(es), ${result.requests} requests, ` +
+          `${result.passedBefore} → ${result.passedAfter} passing, average ${result.scoreBefore} → ${result.scoreAfter}`
+      );
+      for (const step of result.steps) {
+        this.out.appendLine(`  ${step.level} ${step.title}: ${step.scoreBefore} → ${step.scoreAfter}`);
+      }
+      this.out.appendLine(`  stopped: ${describeStop(result.stoppedBecause, this.rubric)}`);
     });
   }
 
@@ -585,6 +629,15 @@ export class BacklogPanel {
 
       case 'createRubricFile':
         await this.createRubricFile();
+        return;
+
+      case 'improve':
+        await this.improve(msg.only);
+        return;
+
+      case 'dismissImproveReport':
+        this.improveReport = undefined;
+        await this.send();
         return;
 
       case 'waiveFinding':

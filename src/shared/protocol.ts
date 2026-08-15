@@ -1,6 +1,7 @@
 import type { Backlog, EpicItem } from '../core/model';
 import type { PushPlan, PushResult } from '../core/pipeline/push';
 import type { BacklogQuality, CriterionDef } from '../core/rubric/index';
+import type { ImproveResult } from '../core/pipeline/improve';
 
 /**
  * The webview/host contract. Shared by both bundles, so a change breaks the
@@ -64,6 +65,8 @@ export interface PanelState {
   quality: BacklogQuality | undefined;
   /** Criterion definitions, so the webview can show names and standards without duplicating them. */
   criteria: CriterionDef[];
+  /** Report from the last improve run, awaiting dismissal. */
+  improveReport: (ImproveResult & { stopExplanation: string }) | undefined;
   /** Where the rubric came from, and any problem loading it. */
   rubric: {
     threshold: number;
@@ -114,6 +117,8 @@ export type WebviewMessage =
   | { type: 'deepReview'; only?: string[] }
   | { type: 'fixItem'; level: 'epic' | 'story'; ref: string }
   | { type: 'createRubricFile' }
+  | { type: 'improve'; only?: string[] }
+  | { type: 'dismissImproveReport' }
   | { type: 'waiveFinding'; level: 'epic' | 'story'; ref: string; ruleId: string }
   | { type: 'unwaiveFinding'; level: 'epic' | 'story'; ref: string; ruleId: string }
   | { type: 'acceptBelowThreshold'; level: 'epic' | 'story'; ref: string }

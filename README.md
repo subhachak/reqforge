@@ -321,6 +321,32 @@ model reports close to a million, which is a routing promise rather than a per-r
 taking it literally means never trimming a long document and sending a request large enough to
 fail at the transport.
 
+## Improving a backlog on its own
+
+The **Improve** button runs the one part of ReqForge that decides for itself what to do next:
+assess, pick what fell short, rewrite it, re-assess, repeat. The rubric threshold is the goal and
+the score is the objective function — which is only possible because the score is computed from
+named criteria rather than invented by a model.
+
+Three properties matter more than the loop:
+
+**It never touches Jira.** Autonomy stops where actions stop being reversible. Everything is a
+local edit; sending remains a human decision taken against a plan. `improve.ts` cannot even
+reach the Atlassian port, and a test asserts that by reading the source.
+
+**It is bounded four ways** — the goal, an iteration cap (3), a request budget (40), and a
+no-progress check that stops a pass which rewrote things without moving any score. An unbounded
+loop against a monthly premium-request allowance is not a feature. Each bound has a test that
+makes the loop hit it.
+
+**It reports what it did.** Every rewrite is listed with the score before and after, how many
+passes ran, how many requests it spent, and why it stopped. One Undo reverses the entire run,
+because the whole loop takes a single snapshot before it starts.
+
+Worth being precise about, if this is going in front of a client: the *rest* of ReqForge is a
+workflow, not an agent. Fixed stages, fixed prompts, human gates. This is the only loop where the
+model's own output decides whether to go round again.
+
 ## Quality rubric
 
 Every item is scored, and items must pass a threshold before they can be sent to Jira.

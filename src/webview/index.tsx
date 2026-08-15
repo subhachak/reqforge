@@ -44,6 +44,7 @@ const EMPTY: PanelState = {
   redoLabel: undefined,
   quality: undefined,
   criteria: [],
+  improveReport: undefined,
   rubric: { threshold: 70, enforcement: 'label', requireReview: false, source: 'default' }
 };
 
@@ -1272,6 +1273,65 @@ function RefineModal({ state }: { state: PanelState }) {
   );
 }
 
+function ImproveModal({ state }: { state: PanelState }) {
+  const r = state.improveReport!;
+  const moved = r.steps.filter((s) => s.scoreAfter > s.scoreBefore);
+
+  return (
+    <div className="overlay">
+      <div className="modal">
+        <header>
+          <h2>Improvement run</h2>
+        </header>
+        <div className="content">
+          <p>
+            <strong>{r.passedBefore} → {r.passedAfter}</strong> items meeting the threshold ·{' '}
+            <strong>{r.scoreBefore} → {r.scoreAfter}</strong> average score
+          </p>
+          <p style={{ color: 'var(--muted)' }}>
+            {r.iterations} pass{r.iterations === 1 ? '' : 'es'}, {r.requests} model requests. {r.stopExplanation}
+          </p>
+
+          {r.steps.length === 0 ? (
+            <p style={{ color: 'var(--muted)' }}>Nothing was rewritten.</p>
+          ) : (
+            <>
+              <div className="section-head">
+                <h2>What it rewrote</h2>
+                <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                  {moved.length} of {r.steps.length} improved
+                </span>
+              </div>
+              {r.steps.map((s, i) => (
+                <div className="plan-item" key={`${s.ref}-${i}`}>
+                  <span className={`badge ${s.scoreAfter > s.scoreBefore ? 'create' : 'skip'}`}>
+                    pass {s.iteration}
+                  </span>
+                  <span style={{ flex: 1 }}>
+                    {s.title} <span style={{ color: 'var(--muted)' }}>({s.level})</span>
+                  </span>
+                  <span className={`pill ${s.scoreAfter > s.scoreBefore ? 'pass' : 'unknown'}`}>
+                    {s.scoreBefore} → {s.scoreAfter}
+                  </span>
+                </div>
+              ))}
+            </>
+          )}
+
+          <p style={{ color: 'var(--muted)', marginTop: 18 }}>
+            Nothing was sent to Jira. Every rewrite is a local edit, and one Undo reverses the whole run.
+          </p>
+        </div>
+        <footer>
+          <button className="primary" onClick={() => post({ type: 'dismissImproveReport' })}>
+            Close
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 function PlanModal({ state, only }: { state: PanelState; only: string[] }) {
   const plan = state.plan!;
   const counts = plan.actions.reduce(
@@ -1622,6 +1682,13 @@ function App() {
               ? 'Reviewed'
               : `Review quality (${state.quality?.unassessed})`}
           </button>
+          <button
+            disabled={state.busy || (state.quality?.failed ?? 0) + (state.quality?.unassessed ?? 0) === 0}
+            onClick={() => act({ type: 'improve' })}
+            title="Assess, rewrite what falls short, re-check, and repeat until it passes or a budget stops it. Nothing is sent to Jira."
+          >
+            ✦ Improve
+          </button>
           <button className="ghost" onClick={() => act({ type: 'navigate', view: 'setup' })}>
             ⚙
           </button>
@@ -1786,6 +1853,7 @@ function App() {
 
       {state.pendingRefine && <RefineModal state={state} />}
       {state.plan && <PlanModal state={state} only={onlyRefs} />}
+      {state.improveReport && <ImproveModal state={state} />}
       {overlay}
     </div>
   );
