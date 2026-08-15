@@ -145,11 +145,11 @@ export async function assessBacklog(
   const results = new Map<string, CriterionResult[]>(opts.cached ?? []);
   const batchSize = opts.batchSize ?? 4;
   const context = [
-    `Source document: ${backlog.source.title}`,
+    `${backlog.source.kind === 'jira' ? 'Source epic' : 'Source document'}: ${backlog.source.title}`,
     backlog.prd.summary ? `Summary: ${backlog.prd.summary}` : '',
     backlog.prd.personas.length
       ? `Known personas: ${backlog.prd.personas.map((p) => p.name).join(', ')}`
-      : 'The source document names no personas, so do not penalise a story for using a plausible role.'
+      : 'No personas are recorded for this backlog, so do not penalise a story for using a plausible role.'
   ]
     .filter(Boolean)
     .join('\n');

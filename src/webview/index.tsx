@@ -578,6 +578,7 @@ function EpicDetail(props: {
   quality: ItemQuality | undefined;
   qualityFor: (level: 'epic' | 'story', ref: string) => ItemQuality | undefined;
   criteria: CriterionDef[];
+  sourceKind: 'confluence' | 'jira';
   onFix: (level: 'epic' | 'story', ref: string) => void;
   onReview: () => void;
   onChange: (e: EpicItem) => void;
@@ -590,6 +591,7 @@ function EpicDetail(props: {
   onToggleStoryFilter: (value: boolean) => void;
 }) {
   const e = props.epic;
+  const sourceKind = props.sourceKind;
   const [instruction, setInstruction] = useState('');
   const status = statusOf(e, props.quality);
   const patch = (p: Partial<EpicItem>) => props.onChange({ ...e, ...p });
@@ -677,7 +679,11 @@ function EpicDetail(props: {
       )}
 
       {e.sourceEvidence.length > 0 && (
-        <Field label="Evidence from the source document" hint="why this epic exists" name="sourceEvidence">
+        <Field
+          label={sourceKind === 'jira' ? 'Evidence' : 'Evidence from the source document'}
+          hint="quoted when this epic was created, and not rewritten since"
+          name="sourceEvidence"
+        >
           <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--muted)' }}>
             {e.sourceEvidence.map((q, i) => (
               <li key={i}>“{q}”</li>
@@ -1458,7 +1464,7 @@ function App() {
       {(b.prd.openQuestions.length > 0 || b.prd.risks.length > 0) && (
         <div className="insights">
           <div className="section-head" style={{ margin: 0, border: 'none', paddingBottom: 0 }}>
-            <h2>What the document leaves unresolved</h2>
+            <h2>{b.source.kind === 'jira' ? 'Unresolved' : 'What the document leaves unresolved'}</h2>
             <span style={{ color: 'var(--muted)', fontSize: 12 }}>
               {[
                 b.prd.openQuestions.length ? `${b.prd.openQuestions.length} open questions` : '',
@@ -1576,6 +1582,7 @@ function App() {
               quality={qualityFor('epic', current.ref)}
               qualityFor={qualityFor}
               criteria={state.criteria}
+              sourceKind={b.source.kind}
               onFix={(level, ref) => act({ type: 'fixItem', level, ref })}
               onReview={() => act({ type: 'deepReview', only: [current.ref] })}
               onChange={(next) => edit(epics.map((x) => (x.ref === next.ref ? next : x)))}

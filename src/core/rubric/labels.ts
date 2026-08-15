@@ -1,4 +1,4 @@
-import { criterionById } from './criteria';
+import { ALL_CRITERIA, criterionById } from './criteria';
 import type { ItemQuality } from './types';
 
 /**
@@ -33,14 +33,15 @@ const MAX_CRITERION_LABELS = 3;
  * that no longer hold without having to read the issue's current labels first.
  */
 export function qualityLabelVocabulary(): string[] {
-  const criteria = ['testable', 'independent', 'negotiable', 'valuable', 'estimable', 'small'];
-  const epicCriteria = ['outcome-focused', 'coherent', 'bounded', 'traceable', 'right-sized'];
+  // Derived, not listed. A hand-written list drifts the moment a criterion is
+  // renamed, and the symptom is a stale label nobody clears.
+  const fromCriteria = [...new Set(ALL_CRITERIA.map((c) => `${PREFIX}-needs-${criterionSlug(c.id)}`))];
   return [
     `${PREFIX}-quality-ok`,
     `${PREFIX}-quality-below-threshold`,
     `${PREFIX}-not-reviewed`,
     `${PREFIX}-quality-accepted`,
-    ...[...criteria, ...epicCriteria].map((c) => `${PREFIX}-needs-${c}`)
+    ...fromCriteria
   ];
 }
 

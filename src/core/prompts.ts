@@ -127,7 +127,7 @@ export function proposeStoriesPrompt(epics: EpicItem[], skeleton: PrdSkeleton): 
       'observability — where the epic implies it. Do not include generic boilerplate stories ' +
       'that every project has ("set up CI") unless the document calls for them.',
     '',
-    'Personas and constraints from the source document:',
+    'Personas and constraints recorded for this backlog:',
     JSON.stringify({ personas: skeleton.personas, constraints: skeleton.constraints }, null, 2),
     '',
     '<epics>',

@@ -29,6 +29,7 @@ export { RULE_IDS } from '${path.resolve('src/core/rubric/rules.ts')}';
 export { qualityLabels, qualityNote, staleQualityLabels, qualityLabelVocabulary } from '${path.resolve('src/core/rubric/labels.ts')}';
 export { parseEpicMarkdown, parseStoryMarkdown } from '${path.resolve('src/core/pipeline/parseIssue.ts')}';
 export { backlogFromJiraIssue, markAsSynced } from '${path.resolve('src/core/pipeline/fromJira.ts')}';
+export { ALL_CRITERIA } from '${path.resolve('src/core/rubric/criteria.ts')}';
 export { planPush } from '${path.resolve('src/core/pipeline/push.ts')}';
 export { storyToMarkdown } from '${path.resolve('src/core/model.ts')}';
 export { STORY_CRITERIA, EPIC_CRITERIA } from '${path.resolve('src/core/rubric/criteria.ts')}';
@@ -581,6 +582,33 @@ check('INVEST is complete and correctly named',
   const q = m.evaluateBacklog(empty, m.DEFAULT_RUBRIC).items.find((i) => i.ref === goodStory.ref);
   check('a story with no narrative is blocked by the rubric instead',
     q.blockedBy.some((b) => b.ruleId === 'has-narrative'), JSON.stringify(q.blockedBy));
+}
+
+/* ------------------------------------------------------------ terminology */
+
+{
+  // Evidence is a claim about what a source document says. A rewrite never sees
+  // the source document, so anything it returns for that field is invented —
+  // which is how a story's own text ends up quoted as an epic's justification.
+  const withEvidence = { ...goodEpic, sourceEvidence: ['"a real quote from the PRD"'] };
+  const modelReturned = { ...goodEpic, sourceEvidence: ['"something the model made up"'] };
+  const mergedLikeRefine = { ...modelReturned, ref: withEvidence.ref, sourceEvidence: withEvidence.sourceEvidence };
+  check('refine keeps the original evidence rather than the model\'s',
+    mergedLikeRefine.sourceEvidence[0].includes('real quote'));
+
+  // An epic is not always from a PRD; it may be imported or added by hand.
+  check('epic footer does not claim a source PRD', !m.epicToMarkdown(goodEpic).includes('source PRD'),
+    m.epicToMarkdown(goodEpic).split('\n').pop());
+  check('epic footer still records sizing', m.epicToMarkdown(goodEpic).includes('Sizing: M'));
+
+  // The label vocabulary is derived, so renaming a criterion cannot leave a
+  // stale label that nothing ever clears.
+  const vocab = m.qualityLabelVocabulary();
+  for (const c of m.ALL_CRITERIA) {
+    const slug = c.id.replace(/^(invest|epic)-/, '');
+    check(`label vocabulary covers ${c.id}`, vocab.includes(`reqforge-needs-${slug}`), vocab.join(','));
+  }
+  check('label vocabulary has no duplicates', new Set(vocab).size === vocab.length);
 }
 
 /* ------------------------------------------------ pulling issues out of Jira */

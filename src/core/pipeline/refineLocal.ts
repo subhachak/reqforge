@@ -64,8 +64,17 @@ export async function refineBacklogItem(
       token
     );
 
-    // Keep identity and existing children; the model only revises content.
-    const merged: EpicItem = { ...revised, ref: epic.ref, sync: epic.sync, stories: epic.stories };
+    // Keep identity, children, and evidence. Evidence is a claim about what the
+    // source document says, and a rewrite never sees the source document — so
+    // anything the model returns for it is invented, and inventing traceability
+    // is worse than having none.
+    const merged: EpicItem = {
+      ...revised,
+      ref: epic.ref,
+      sync: epic.sync,
+      stories: epic.stories,
+      sourceEvidence: epic.sourceEvidence
+    };
     const after = epicToMarkdown(merged);
     return {
       level: 'epic',
@@ -139,7 +148,7 @@ function contextFor(backlog: Backlog, excludeRef: string): string {
     .map((e) => `- ${e.title}: ${e.outcome}`)
     .join('\n');
   return [
-    `Source document: ${backlog.source.title}`,
+    `${backlog.source.kind === 'jira' ? 'Source epic' : 'Source document'}: ${backlog.source.title}`,
     backlog.prd.summary ? `Summary: ${backlog.prd.summary}` : '',
     siblings ? `\nOther epics in this backlog — do not duplicate their scope:\n${siblings}` : ''
   ]
