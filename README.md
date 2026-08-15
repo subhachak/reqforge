@@ -14,8 +14,14 @@ npm install && npm run check
 
 Then press <kbd>F5</kbd> in VS Code ("Run ReqForge (restricted profile)") to launch an Extension Development Host.
 
-In the dev host, **open a folder first** — the backlog is stored workspace-relative — then
-<kbd>⌘⇧P</kbd> → **`ReqForge: Open`**. That is the only command anybody needs.
+In the dev host, **open a folder first** — the backlog is stored workspace-relative — then click
+the ReqForge icon in the activity bar. That opens the panel directly; there is no tree to navigate
+first. <kbd>⌘⇧P</kbd> → **`ReqForge: Open`** does the same.
+
+**`ReqForge: Open` is the only command in the palette.** Credentials, model checks, story
+generation, refine, push and dry run were all palette entries once and are all in the panel now.
+A palette entry that duplicates a button is a second code path to keep working and a second thing
+to explain to a product owner who was never going to open the palette.
 
 **First run lands on setup and stays there.** Site, account email, API token and Jira project are
 required before any other view is reachable — the host recomputes that gate on every render, so
@@ -32,9 +38,9 @@ real work, with errors that read like bugs.
 Backlogs already saved on this machine are listed underneath as a "pick up where you left off"
 list. That list is read from local files; nothing queries Jira until you ask it to.
 
-The command palette entries (`Decompose Epic into Stories`, `Preview Push`, `Push Backlog to
-Jira`, `Refine Existing Issue`, `Check Language Model Availability`) still exist as power-user
-shortcuts and are what the headless paths are built on, but nobody needs them to use the tool.
+The pipelines those commands drove are unchanged and still headless — `src/core/` has no
+`import * as vscode` in it, and `npm run smoke` exercises the lot without an extension host.
+Only the palette surface went.
 
 ### Working on the UI without an extension host
 
@@ -60,7 +66,7 @@ HARNESS_VIEW=jira npm run harness                 # the update-an-issue view
 
 Copilot's endpoint applies relevance filtering, and "decompose this product requirements document" is not self-evidently a coding task. **This is the single risk that can sink the project**, because under the restricted profile there is no alternate provider to fall back to.
 
-Run `ReqForge: Check Language Model Availability`, then run one real decomposition against a representative PRD. If you get `LanguageModelError` with code `Blocked`, the mitigation is prompt framing, not architecture — all prompts in `src/core/prompts.ts` already lead with an engineering framing (`ENGINEER_PREAMBLE`) and use issue-tracker vocabulary throughout. Push harder in that direction before concluding it cannot work.
+Open ReqForge, go to Settings, and press **Test connections** — it probes Copilot and Atlassian separately. Then run one real decomposition against a representative PRD. If you get `LanguageModelError` with code `Blocked`, the mitigation is prompt framing, not architecture — all prompts in `src/core/prompts.ts` already lead with an engineering framing (`ENGINEER_PREAMBLE`) and use issue-tracker vocabulary throughout. Push harder in that direction before concluding it cannot work.
 
 The adapter surfaces a refusal verbatim rather than swallowing it: if the model answers in prose instead of calling the emit-tool, that prose is included in the error, which tells you exactly what it objected to.
 
@@ -73,7 +79,7 @@ The adapter surfaces a refusal verbatim rather than swallowing it: if the model 
         │                review · inline edit · rewrite · send to Jira
         │  postMessage, typed by src/shared/protocol.ts
   VS Code layer          src/vscode/, src/extension.ts
-        │                panel · commands · tree view · secrets
+        │                panel · one command · secrets
   ──────┼───────────────────────────────────────────────────────────
   Core  │                src/core/
         │                ports · schemas · prompts · pipelines · store

@@ -52,12 +52,30 @@ import { WorkspaceFs } from './fs';
 export class BacklogPanel {
   private static current: BacklogPanel | undefined;
 
-  static async show(ctx: vscode.ExtensionContext, out: vscode.OutputChannel, onChanged: () => void, slug?: string) {
+  /**
+   * `slug` opens that backlog; `home` forces the start screen. Neither means
+   * reveal whatever was already there, so switching to the panel does not
+   * throw away where somebody was.
+   */
+  static async show(
+    ctx: vscode.ExtensionContext,
+    out: vscode.OutputChannel,
+    opts: { slug?: string; home?: boolean } = {}
+  ) {
     const column = vscode.ViewColumn.One;
-    if (BacklogPanel.current) {
-      BacklogPanel.current.panel.reveal(column);
-      if (slug) await BacklogPanel.current.load(slug);
-      return BacklogPanel.current;
+    const existing = BacklogPanel.current;
+
+    if (existing) {
+      existing.panel.reveal(column, true);
+      if (opts.slug) {
+        await existing.load(opts.slug);
+        existing.view = 'backlog';
+        await existing.send();
+      } else if (opts.home) {
+        existing.view = 'home';
+        await existing.send();
+      }
+      return existing;
     }
 
     const panel = vscode.window.createWebviewPanel('reqforge.backlog', 'ReqForge', column, {
@@ -66,8 +84,12 @@ export class BacklogPanel {
       localResourceRoots: [vscode.Uri.joinPath(ctx.extensionUri, 'dist')]
     });
 
-    BacklogPanel.current = new BacklogPanel(ctx, panel, out, onChanged);
-    if (slug) await BacklogPanel.current.load(slug);
+    BacklogPanel.current = new BacklogPanel(ctx, panel, out);
+    if (opts.slug) {
+      await BacklogPanel.current.load(opts.slug);
+      BacklogPanel.current.view = 'backlog';
+      await BacklogPanel.current.send();
+    }
     return BacklogPanel.current;
   }
 
@@ -110,8 +132,7 @@ export class BacklogPanel {
   private constructor(
     private readonly ctx: vscode.ExtensionContext,
     private readonly panel: vscode.WebviewPanel,
-    private readonly out: vscode.OutputChannel,
-    private readonly onChanged: () => void
+    private readonly out: vscode.OutputChannel
   ) {
     panel.webview.html = this.html();
     panel.onDidDispose(() => (BacklogPanel.current = undefined));
@@ -404,7 +425,6 @@ export class BacklogPanel {
   private async save() {
     if (this.backlog && this.slug) {
       await this.store().save(this.slug, this.backlog);
-      this.onChanged();
     }
   }
 
@@ -706,7 +726,6 @@ export class BacklogPanel {
       this.view = 'home';
     }
 
-    this.onChanged();
     this.notice = { kind: 'info', message: `Removed "${title}" from this machine.` };
     await this.send();
   }
@@ -802,8 +821,7 @@ export class BacklogPanel {
       await this.store().save(result.slug, result.backlog);
       await this.load(result.slug);
       this.view = 'backlog';
-      this.onChanged();
-
+  
       const stories = result.backlog.epics[0]?.stories.length ?? 0;
       this.notice = result.unstructured
         ? {

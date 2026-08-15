@@ -84,45 +84,8 @@
         "title": "ReqForge: Open"
       },
       {
-        "command": "reqforge.setCredentials",
-        "title": "ReqForge: Set Atlassian API Token"
-      },
-      {
-        "command": "reqforge.clearCredentials",
-        "title": "ReqForge: Clear Atlassian API Token"
-      },
-      {
-        "command": "reqforge.checkModel",
-        "title": "ReqForge: Check Language Model Availability"
-      },
-      {
         "command": "reqforge.decomposePrd",
         "title": "ReqForge: Decompose Confluence PRD into Epics"
-      },
-      {
-        "command": "reqforge.decomposeEpic",
-        "title": "ReqForge: Decompose Epic into Stories"
-      },
-      {
-        "command": "reqforge.refineIssue",
-        "title": "ReqForge: Refine Existing Issue"
-      },
-      {
-        "command": "reqforge.push",
-        "title": "ReqForge: Push Backlog to Jira"
-      },
-      {
-        "command": "reqforge.pushDryRun",
-        "title": "ReqForge: Preview Push (Dry Run)"
-      },
-      {
-        "command": "reqforge.refresh",
-        "title": "ReqForge: Refresh Backlog View",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "reqforge.openItem",
-        "title": "ReqForge: Open Item"
       }
     ],
     "viewsContainers": {
@@ -137,25 +100,25 @@
     "views": {
       "reqforge": [
         {
-          "id": "reqforge.backlog",
-          "name": "Backlog"
+          "id": "reqforge.start",
+          "name": "ReqForge"
         }
       ]
     },
     "menus": {
-      "view/title": [
+      "commandPalette": [
         {
-          "command": "reqforge.open",
-          "when": "view == reqforge.backlog",
-          "group": "navigation"
-        },
-        {
-          "command": "reqforge.refresh",
-          "when": "view == reqforge.backlog",
-          "group": "navigation"
+          "command": "reqforge.decomposePrd",
+          "when": "false"
         }
       ]
-    }
+    },
+    "viewsWelcome": [
+      {
+        "view": "reqforge.start",
+        "contents": "Turn a requirements document into a reviewed Jira backlog, or pull an existing epic in to work on.\n\n[Open ReqForge](command:reqforge.open)"
+      }
+    ]
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
