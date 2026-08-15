@@ -21,10 +21,20 @@ export class CopilotLlmAdapter implements LlmPort {
 
   private cached: vscode.LanguageModelChat | undefined;
 
+  /**
+   * Every request here consumes one of the user's Copilot premium requests, and
+   * nothing was telling them how many a run costs. On a monthly allowance that
+   * matters both for planning a rollout and for working out whether a failure
+   * is a network problem or an exhausted quota.
+   */
+  private calls = 0;
+
   constructor(
     private readonly preferredFamily?: string,
     /** Reports a transient failure and the wait before the next attempt. */
-    private readonly onRetry?: (attempt: number, delayMs: number, reason: string) => void
+    private readonly onRetry?: (attempt: number, delayMs: number, reason: string) => void,
+    /** Reports each request made, so consumption is visible. */
+    private readonly onCall?: (info: { n: number; tool: string; inputTokens: number }) => void
   ) {}
 
   private async selectModel(): Promise<vscode.LanguageModelChat> {
@@ -129,6 +139,22 @@ export class CopilotLlmAdapter implements LlmPort {
     req: StructuredRequest<T>,
     cts: vscode.CancellationToken
   ): Promise<{ ok: true; value: T } | { ok: false; error: string }> {
+    this.calls++;
+    if (this.onCall) {
+      // countTokens runs against the local tokenizer; it is not a request.
+      const counted = await Promise.all(
+        messages.map(async (msg) => {
+          try {
+            return await model.countTokens(msg);
+          } catch {
+            return 0;
+          }
+        })
+      );
+      const inputTokens = counted.reduce((a: number, b: number) => a + b, 0);
+      this.onCall({ n: this.calls, tool: req.toolName, inputTokens });
+    }
+
     let toolInput: unknown;
     let prose = '';
 

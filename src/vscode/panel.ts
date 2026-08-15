@@ -154,6 +154,8 @@ export class BacklogPanel {
       this.busyLabel = `Copilot did not respond. Retrying in ${delayMs / 1000}s (attempt ${attempt} of 3)…`;
       void this.send();
     };
+    actx.onLlmCall = ({ n, tool, inputTokens }) =>
+      this.out.appendLine(`Copilot request ${n} — ${tool}, ${inputTokens.toLocaleString()} input tokens`);
     return { atlassian: registry.createAtlassian(actx), llm: registry.createLlm(actx) };
   }
 

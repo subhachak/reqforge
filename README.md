@@ -265,6 +265,26 @@ already provide. It costs one extra call per item, which is why it is staged rat
 priority and story-point fields. Both need per-instance field discovery, since the story-point
 field id differs between instances.
 
+## What a run costs
+
+Every model request consumes one of the user's Copilot premium requests, and the output channel
+now logs each one:
+
+```
+Copilot request 1 — emit_prd_structure, 7,240 input tokens
+Copilot request 2 — emit_epics, 8,110 input tokens
+```
+
+Rough shape of a run: a decomposition with the critic pass is **4 requests**, story generation is
+**one per 3 epics**, and a quality review is **one per 4 items**. A full pass over a six-epic
+backlog with thirty stories is therefore around **twenty requests**. On a 300-a-month allowance
+that adds up faster than people expect, and it is worth knowing before proposing this to a client
+as a daily tool.
+
+It is also the first thing to check when a request fails for no obvious reason: an exhausted quota
+does not always come back as a clean error, and the Copilot extension's own output channel
+(View → Output → GitHub Copilot Chat) logs the real HTTP status behind a transport-level failure.
+
 ## When Copilot fails at the network layer
 
 `net::ERR_HTTP2_PROTOCOL_ERROR` and its relatives come from the Copilot extension's own network

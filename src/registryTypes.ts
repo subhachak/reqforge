@@ -19,6 +19,8 @@ export interface AdapterContext {
    * explain a pause rather than appearing to hang.
    */
   onLlmRetry?: (attempt: number, delayMs: number, reason: string) => void;
+  /** Called per model request, so premium-request consumption is visible. */
+  onLlmCall?: (info: { n: number; tool: string; inputTokens: number }) => void;
 }
 
 /**
