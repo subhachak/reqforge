@@ -19,6 +19,13 @@ interface Rule<T> {
 export interface RuleContext {
   allEpicRefs: Set<string>;
   siblingTitles: string[];
+  /**
+   * True when this backlog is a slice rather than a whole set — one epic
+   * pulled out of Jira, say. A dependency that points outside a slice is
+   * ordinary; the same dependency inside a complete decomposition is broken.
+   * Rules that reason about the set as a whole have to know which they have.
+   */
+  partial: boolean;
 }
 
 /** Judgement words that make an acceptance criterion untestable. */
@@ -81,8 +88,21 @@ const EPIC_RULES: Rule<EpicItem>[] = [
     id: 'dependencies-resolve',
     severity: 'blocker',
     check: (e, ctx) => {
+      // Only meaningful for a complete set. In a slice, see external-dependency.
+      if (ctx.partial) return undefined;
       const dangling = e.dependsOn.filter((d) => !ctx.allEpicRefs.has(d));
       return dangling.length ? `Depends on epics that do not exist: ${dangling.join(', ')}.` : undefined;
+    }
+  },
+  {
+    id: 'external-dependency',
+    severity: 'info',
+    check: (e, ctx) => {
+      if (!ctx.partial) return undefined;
+      const outside = e.dependsOn.filter((d) => !ctx.allEpicRefs.has(d));
+      return outside.length
+        ? `Depends on ${outside.join(', ')}, which ${outside.length === 1 ? 'is' : 'are'} not in this backlog. Check separately that the work exists.`
+        : undefined;
     }
   },
   {
@@ -94,8 +114,14 @@ const EPIC_RULES: Rule<EpicItem>[] = [
     id: 'has-evidence',
     severity: 'warn',
     field: 'sourceEvidence',
-    check: (e) =>
-      e.sourceEvidence.length > 0 ? undefined : 'No evidence from the source document — this scope cannot be traced.'
+    check: (e, ctx) => {
+      // Traceability is to a source document. An epic read back out of Jira
+      // has none, so demanding evidence of it is noise on every import.
+      if (ctx.partial) return undefined;
+      return e.sourceEvidence.length > 0
+        ? undefined
+        : 'No evidence from the source document — this scope cannot be traced.';
+    }
   },
   {
     id: 'has-out-of-scope',

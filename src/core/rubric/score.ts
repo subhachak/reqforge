@@ -104,7 +104,9 @@ export function evaluateBacklog(
 ): BacklogQuality {
   const ctx: RuleContext = {
     allEpicRefs: new Set(backlog.epics.map((e) => e.ref)),
-    siblingTitles: []
+    siblingTitles: [],
+    // A backlog read out of Jira is one epic, not the whole picture.
+    partial: backlog.source.kind === 'jira'
   };
 
   const items: ItemQuality[] = [];

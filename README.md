@@ -318,6 +318,13 @@ description field, acceptance criteria come back empty, and the rubric immediate
 is the right answer: a hand-written epic with no testable criteria genuinely does not have any.
 The panel says as much when it loads one.
 
+**Rules that reason about the whole set know they only have a slice.** A dependency on an epic
+that is not present is a broken reference inside a complete decomposition, and an ordinary
+external dependency inside one epic pulled out of Jira — so the first blocks and the second is
+reported as information. Likewise traceability: an imported epic has no source document, so
+demanding evidence of one is noise. `RuleContext.partial` carries the distinction, set from
+`source.kind`.
+
 Two details worth knowing:
 
 - Children are read with one `parent = KEY` search returning full detail, not a search followed by

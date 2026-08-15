@@ -581,6 +581,54 @@ check('INVEST is complete and correctly named',
     q.blockedBy.some((b) => b.ruleId === 'has-narrative'), JSON.stringify(q.blockedBy));
 }
 
+/* -------------------------------- a slice of a backlog is not a broken one */
+
+{
+  const dependent = { ...goodEpic, dependsOn: ['something-elsewhere'] };
+
+  // A complete decomposition: a dependency on an epic that is not there is broken.
+  const whole = backlogOf([dependent]);
+  const wholeQ = m.evaluateBacklog(whole, m.DEFAULT_RUBRIC).items.find((i) => i.ref === 'good');
+  check('complete backlog: a dangling dependency blocks',
+    wholeQ.blockedBy.some((f) => f.ruleId === 'dependencies-resolve'),
+    JSON.stringify(wholeQ.blockedBy.map((f) => f.ruleId)));
+
+  // One epic pulled out of Jira: the same dependency points outside the slice,
+  // which is ordinary, and blocking on it makes the import unusable.
+  const slice = backlogOf([dependent]);
+  slice.source.kind = 'jira';
+  const sliceQ = m.evaluateBacklog(slice, m.DEFAULT_RUBRIC).items.find((i) => i.ref === 'good');
+  check('imported epic: an external dependency does not block',
+    !sliceQ.blockedBy.some((f) => f.ruleId === 'dependencies-resolve'),
+    JSON.stringify(sliceQ.blockedBy.map((f) => f.ruleId)));
+  check('imported epic: it is still reported, as information',
+    sliceQ.warnings.some((f) => f.ruleId === 'external-dependency' && f.message.includes('something-elsewhere')),
+    JSON.stringify(sliceQ.warnings.map((f) => f.ruleId)));
+  check('imported epic: a resolvable dependency reports nothing',
+    m.evaluateBacklog(
+      (() => { const b = backlogOf([{ ...goodEpic, dependsOn: [] }]); b.source.kind = 'jira'; return b; })(),
+      m.DEFAULT_RUBRIC
+    ).items.find((i) => i.ref === 'good').warnings.every((f) => f.ruleId !== 'external-dependency'));
+
+  // Same family: traceability is to a source document an import does not have.
+  const noEvidence = backlogOf([{ ...goodEpic, sourceEvidence: [] }]);
+  check('complete backlog: missing evidence warns',
+    m.evaluateBacklog(noEvidence, m.DEFAULT_RUBRIC).items.find((i) => i.ref === 'good')
+      .warnings.some((f) => f.ruleId === 'has-evidence'));
+  const importedNoEvidence = backlogOf([{ ...goodEpic, sourceEvidence: [] }]);
+  importedNoEvidence.source.kind = 'jira';
+  check('imported epic: missing evidence does not warn',
+    m.evaluateBacklog(importedNoEvidence, m.DEFAULT_RUBRIC).items.find((i) => i.ref === 'good')
+      .warnings.every((f) => f.ruleId !== 'has-evidence'));
+
+  // Depending on yourself is broken either way.
+  const selfDep = backlogOf([{ ...goodEpic, dependsOn: ['good'] }]);
+  selfDep.source.kind = 'jira';
+  check('imported epic: a self-dependency still blocks',
+    m.evaluateBacklog(selfDep, m.DEFAULT_RUBRIC).items.find((i) => i.ref === 'good')
+      .blockedBy.some((f) => f.ruleId === 'no-self-dependency'));
+}
+
 /* ------------------------------------------------------------ sync status */
 
 {
