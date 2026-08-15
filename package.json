@@ -80,6 +80,10 @@
     },
     "commands": [
       {
+        "command": "reqforge.open",
+        "title": "ReqForge: Open Backlog"
+      },
+      {
         "command": "reqforge.setCredentials",
         "title": "ReqForge: Set Atlassian API Token"
       },
@@ -141,6 +145,11 @@
     "menus": {
       "view/title": [
         {
+          "command": "reqforge.open",
+          "when": "view == reqforge.backlog",
+          "group": "navigation"
+        },
+        {
           "command": "reqforge.refresh",
           "when": "view == reqforge.backlog",
           "group": "navigation"
@@ -158,15 +167,20 @@
     "watch": "node esbuild.mjs --profile=restricted --watch",
     "package": "npm run typecheck && node esbuild.mjs --profile=restricted --minify && npx --yes @vscode/vsce package --out reqforge-restricted.vsix",
     "package:full": "npm run typecheck && node esbuild.mjs --profile=full --minify && npx --yes @vscode/vsce package --out reqforge-full.vsix",
-    "vscode:prepublish": "npm run build"
+    "vscode:prepublish": "npm run build",
+    "harness": "node scripts/harness.mjs"
   },
   "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "turndown": "^7.2.0",
     "yaml": "^2.5.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
     "@types/turndown": "^5.0.5",
     "@types/vscode": "^1.99.0",
     "esbuild": "^0.24.0",

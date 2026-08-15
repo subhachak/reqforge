@@ -65,11 +65,8 @@ export class BacklogTreeProvider implements vscode.TreeDataProvider<Node> {
       item.iconPath = new vscode.ThemeIcon('book');
       item.contextValue = 'reqforge.backlog';
       item.resourceUri = vscode.Uri.file(backlogPath(dataFolder(), node.slug));
-      item.command = {
-        command: 'reqforge.openItem',
-        title: 'Open',
-        arguments: [{ type: 'file', slug: node.slug }]
-      };
+      // Clicking a backlog opens the review panel, not the raw file.
+      item.command = { command: 'reqforge.open', title: 'Open', arguments: [node.slug] };
       return item;
     }
 

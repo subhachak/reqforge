@@ -9,6 +9,7 @@ import { BacklogStore, backlogPath } from '../core/store';
 import type { Backlog } from '../core/model';
 import { adapterContext, cfg, clearApiToken, dataFolder, ensureConfigured, promptForToken } from './config';
 import { VirtualDocs, WorkspaceFs } from './fs';
+import { BacklogPanel } from './panel';
 import type { BacklogTreeProvider } from './tree';
 
 export interface Deps {
@@ -50,6 +51,13 @@ async function guard(deps: Deps, title: string, fn: () => Promise<void>): Promis
 
 export function registerCommands(deps: Deps): vscode.Disposable[] {
   return [
+    // The product owner entry point. Everything else is a power-user shortcut.
+    vscode.commands.registerCommand('reqforge.open', (slug?: string) =>
+      guard(deps, 'Open ReqForge', async () => {
+        await BacklogPanel.show(deps.ctx, deps.out, () => deps.tree.refresh(), slug);
+      })
+    ),
+
     vscode.commands.registerCommand('reqforge.setCredentials', () =>
       guard(deps, 'Set credentials', async () => {
         if (await promptForToken(deps.ctx)) {
@@ -160,7 +168,7 @@ async function decomposeCmd(deps: Deps): Promise<void> {
       })
   );
 
-  const path = await store().save(result.slug, result.backlog);
+  await store().save(result.slug, result.backlog);
   deps.tree.refresh();
 
   deps.out.appendLine(`\nDecomposed "${result.backlog.source.title}" → ${result.backlog.epics.length} epics`);
@@ -173,16 +181,8 @@ async function decomposeCmd(deps: Deps): Promise<void> {
     result.backlog.prd.openQuestions.forEach((q) => deps.out.appendLine(`  - ${q}`));
   }
 
-  const uri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, ...path.split('/'));
-  await vscode.window.showTextDocument(uri);
-
-  const next = await vscode.window.showInformationMessage(
-    `${result.backlog.epics.length} epics proposed, and ${result.backlog.prd.openQuestions.length} open questions.`,
-    'Generate Stories',
-    'Preview Push'
-  );
-  if (next === 'Generate Stories') await vscode.commands.executeCommand('reqforge.decomposeEpic');
-  if (next === 'Preview Push') await vscode.commands.executeCommand('reqforge.pushDryRun');
+  // Land the user in the review panel, not in a YAML file.
+  await BacklogPanel.show(deps.ctx, deps.out, () => deps.tree.refresh(), result.slug);
 }
 
 async function pickBacklog(): Promise<{ slug: string; backlog: Backlog } | undefined> {

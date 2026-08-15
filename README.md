@@ -14,13 +14,29 @@ npm install && npm run check
 
 Then press <kbd>F5</kbd> in VS Code ("Run ReqForge (restricted profile)") to launch an Extension Development Host.
 
-In the dev host:
+In the dev host, **open a folder first** — the backlog is stored workspace-relative — then:
 
 1. `ReqForge: Check Language Model Availability` — **run this first**, see the spike below.
 2. `ReqForge: Decompose Confluence PRD into Epics` — prompts for anything unconfigured.
-3. `ReqForge: Decompose Epic into Stories`
-4. `ReqForge: Preview Push (Dry Run)` → `ReqForge: Push Backlog to Jira`
-5. `ReqForge: Refine Existing Issue`
+
+That lands you in the review panel, which is the whole product as far as a product owner is
+concerned: epics and stories, inline editing, plain-English rewrite requests, and a reviewed
+send to Jira. `ReqForge: Open Backlog` reopens it.
+
+The command palette entries (`Decompose Epic into Stories`, `Preview Push`, `Push Backlog to
+Jira`, `Refine Existing Issue`) still exist as power-user shortcuts and are what the headless
+paths are built on, but nobody needs them to use the tool.
+
+### Working on the UI without an extension host
+
+```bash
+npm run harness -- /path/to/some.backlog.yaml
+```
+
+Serves the built webview at `http://localhost:5177` with `acquireVsCodeApi()` stubbed and a real
+backlog loaded. Posted messages are logged bottom-right; press `t` to toggle light theme. Rebuild
+(`npm run build`) and reload to see changes. This is much faster than round-tripping through the
+Extension Development Host, and it is how the layout bugs in the autosizing fields were found.
 
 ---
 
@@ -37,8 +53,11 @@ The adapter surfaces a refusal verbatim rather than swallowing it: if the model 
 ## Architecture
 
 ```
+  Webview (React)        src/webview/         ← what a product owner sees
+        │                review · inline edit · rewrite · send to Jira
+        │  postMessage, typed by src/shared/protocol.ts
   VS Code layer          src/vscode/, src/extension.ts
-        │                commands · tree view · secrets · virtual docs
+        │                panel · commands · tree view · secrets
   ──────┼───────────────────────────────────────────────────────────
   Core  │                src/core/
         │                ports · schemas · prompts · pipelines · store
@@ -48,6 +67,15 @@ The adapter surfaces a refusal verbatim rather than swallowing it: if the model 
    ├ fixture  ✅   │            └ mcp    ⬜   │
    └ anthropic ⬜  │                          │
 ```
+
+The host owns all state. The webview posts intents and re-renders whatever comes back, so the
+file on disk and the pixels on screen can never disagree. Backlogs are tens of items, so full-state
+round trips are simpler and safer than incremental patching and cost nothing at this size.
+
+**Why VS Code, when the users are product owners?** Because the restricted profile's only
+permitted model is Copilot, and Copilot is reachable only through `vscode.lm`, which exists only
+inside an extension host. A standalone web app would mean giving up the one approved LLM route.
+So the host is fixed, and the job is to make it disappear behind the panel.
 
 `src/core/` has no `import * as vscode` anywhere in it. That is deliberate — it means the pipeline, schema validation, idempotency and rendering are all testable headlessly (`npm run smoke`), which is also the evidence a security-conscious client will ask for.
 
@@ -152,8 +180,11 @@ Honest list of what a weekend did not cover:
 - **MCP adapter** (`src/adapters/atlassian/mcp.ts`) — interface and registry slot exist; the adapter does not. Out of scope for the restricted client by policy.
 - **Anthropic LLM adapter** — same.
 - **Fixture recorder.** `FixtureLlmAdapter` replays fixtures, but nothing writes them yet, and the `reqforge.llm.recordFixtures` setting referenced in its doc comment does not exist. Offline demo mode is therefore not usable as shipped.
-- **Copilot agent-mode tools.** The natural next slice: expose the pipeline stages via `vscode.lm.registerTool` so Copilot agent mode can drive them conversationally. Tools must call the core (so dry-run and idempotency still apply), and every write tool must return `confirmationMessages` from `prepareInvocation`. Not MCP — no new egress — so it should survive the client's policy, but confirm agent mode itself is permitted.
+- **Undo in the panel.** Edits save on a 400ms debounce with no undo stack. The backlog file is in git, which is the current answer, but that is a developer's answer and not a product owner's.
+- **Reordering and moving stories between epics.** Splitting an epic still means adding a new one and retyping.
+- **Story points as a real Jira field.** `points` is rendered into the description text, not written to the story-points custom field, whose id differs per instance.
+- **Copilot agent-mode tools.** Expose the pipeline stages via `vscode.lm.registerTool` so Copilot agent mode can drive them conversationally. Tools must call the core (so dry-run and idempotency still apply), and every write tool must return `confirmationMessages` from `prepareInvocation`. Not MCP — no new egress — so it should survive the client's policy, but confirm agent mode itself is permitted.
 - **Contract test suite** across adapters — worth writing before the MCP adapter, not after.
 - **Confluence write-back** (posting the epic breakdown to the PRD page as a child page).
-- **Sub-tasks, story points custom field, sprint assignment, components.** `NewIssue` covers summary, description, labels, parent only.
-- **Automated tests beyond `scripts/smoke.mjs`**, which covers the pure converters, hashing, and serialization — not the pipeline or the adapters.
+- **Sub-tasks, sprint assignment, components.** `NewIssue` covers summary, description, labels, parent only.
+- **Automated tests beyond `scripts/smoke.mjs`**, which covers the pure converters, hashing, and serialization — not the pipeline, the adapters, or the UI.

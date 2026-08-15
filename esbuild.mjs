@@ -33,6 +33,7 @@ const complianceGuard = {
     build.onEnd((result) => {
       if (profile !== 'restricted' || result.errors.length > 0) return;
       const outfile = build.initialOptions.outfile;
+      if (!outfile) return;
       const bundle = readFileSync(outfile, 'utf8');
       const hits = FORBIDDEN_IN_RESTRICTED.filter((needle) => bundle.includes(needle));
       if (hits.length > 0) {
@@ -49,8 +50,12 @@ const complianceGuard = {
   }
 };
 
-/** @type {import('esbuild').BuildOptions} */
-const options = {
+// The single seam between the two builds. Only the registry files import
+// adapters, so the unused ones are never pulled into the graph at all.
+const alias = { '@registry': path.join(root, `src/registry.${profile}.ts`) };
+
+/** Runs in the extension host: Node, CJS, `vscode` provided by the runtime. */
+const extensionOptions = {
   entryPoints: [path.join(root, 'src/extension.ts')],
   bundle: true,
   outfile: path.join(root, 'dist/extension.js'),
@@ -62,22 +67,37 @@ const options = {
   minify,
   treeShaking: true,
   logLevel: 'info',
-  define: {
-    'process.env.REQFORGE_PROFILE': JSON.stringify(profile)
-  },
-  // The single seam between the two builds. Only this file imports adapters,
-  // so the unused ones are never pulled into the graph at all.
-  alias: {
-    '@registry': path.join(root, `src/registry.${profile}.ts`)
-  },
+  define: { 'process.env.REQFORGE_PROFILE': JSON.stringify(profile) },
+  alias,
+  plugins: [complianceGuard]
+};
+
+/** Runs in the webview: a browser sandbox with no Node and no network. */
+const webviewOptions = {
+  entryPoints: [path.join(root, 'src/webview/index.tsx')],
+  bundle: true,
+  outfile: path.join(root, 'dist/webview.js'),
+  platform: 'browser',
+  format: 'iife',
+  target: 'es2020',
+  sourcemap: !minify,
+  minify,
+  treeShaking: true,
+  logLevel: 'info',
+  jsx: 'automatic',
+  loader: { '.css': 'css' },
+  define: { 'process.env.NODE_ENV': JSON.stringify(minify ? 'production' : 'development') },
+  alias,
   plugins: [complianceGuard]
 };
 
 if (watch) {
-  const ctx = await esbuild.context(options);
-  await ctx.watch();
+  for (const options of [extensionOptions, webviewOptions]) {
+    const ctx = await esbuild.context(options);
+    await ctx.watch();
+  }
   console.log(`watching (profile: ${profile})`);
 } else {
-  await esbuild.build(options);
+  await Promise.all([esbuild.build(extensionOptions), esbuild.build(webviewOptions)]);
   console.log(`built profile: ${profile}`);
 }

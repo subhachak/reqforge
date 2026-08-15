@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "reqforge-webview-harness",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/harness.mjs",
+        "/Users/subh/MyApps/Scratch/.reqforge/prd-pms-security-configurability-uplift.backlog.yaml",
+        "5177"
+      ],
+      "port": 5177
+    }
+  ]
+}

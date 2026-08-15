@@ -29,9 +29,20 @@ export interface PushPlan {
  * Builds the plan without writing anything. The plan is what the dry-run shows
  * and what the user confirms; execution never re-derives it.
  */
-export async function planPush(atlassian: AtlassianPort, backlog: Backlog): Promise<PushPlan> {
+export interface PlanOptions {
+  /** Restrict the plan to these epics and their stories. Omit to plan everything. */
+  onlyEpicRefs?: string[];
+}
+
+export async function planPush(
+  atlassian: AtlassianPort,
+  backlog: Backlog,
+  opts: PlanOptions = {}
+): Promise<PushPlan> {
   const { projectKey, epicIssueType, storyIssueType } = backlog.target;
   if (!projectKey) throw new AtlassianError('No Jira project key set. Configure reqforge.jira.projectKey.');
+
+  const only = opts.onlyEpicRefs ? new Set(opts.onlyEpicRefs) : undefined;
 
   const blockingFields: string[] = [];
   if (atlassian.capabilities().has('jira.createmeta')) {
@@ -43,6 +54,7 @@ export async function planPush(atlassian: AtlassianPort, backlog: Backlog): Prom
   const actions: PushAction[] = [];
 
   for (const epic of backlog.epics) {
+    if (only && !only.has(epic.ref)) continue;
     const resolved = await resolveKey(atlassian, backlog, epic.sync.jiraKey, epic.ref, projectKey);
     actions.push(buildAction('epic', epic.ref, epic.title, resolved, epic.sync.pushedHash, epicFingerprint(epic)));
 
