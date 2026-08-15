@@ -20,7 +20,7 @@ writeFileSync(
 export { storageToMarkdown } from '${path.resolve('src/adapters/atlassian/storageFormat.ts')}';
 export { markdownToAdf, adfToMarkdown } from '${path.resolve('src/adapters/atlassian/adf.ts')}';
 export { extractPageId } from '${path.resolve('src/adapters/atlassian/rest.ts')}';
-export { epicToMarkdown, stampLabel, epicFingerprint, syncStatus, isPending } from '${path.resolve('src/core/model.ts')}';
+export { epicToMarkdown, storyToMarkdown, stampLabel, epicFingerprint, storyFingerprint, syncStatus, isPending } from '${path.resolve('src/core/model.ts')}';
 export { serializeBacklog, deserializeBacklog, BacklogStore, backlogPath } from '${path.resolve('src/core/store.ts')}';
 export { loadQuality, saveQuality, deleteQuality, qualityPath } from '${path.resolve('src/core/rubric/store.ts')}';
 export { evaluateBacklog, scoreCriteria, fixInstruction, cacheKey, overrideKey } from '${path.resolve('src/core/rubric/score.ts')}';
@@ -31,7 +31,7 @@ export { parseEpicMarkdown, parseStoryMarkdown } from '${path.resolve('src/core/
 export { backlogFromJiraIssue, markAsSynced } from '${path.resolve('src/core/pipeline/fromJira.ts')}';
 export { ALL_CRITERIA } from '${path.resolve('src/core/rubric/criteria.ts')}';
 export { planPush } from '${path.resolve('src/core/pipeline/push.ts')}';
-export { storyToMarkdown } from '${path.resolve('src/core/model.ts')}';
+
 export { STORY_CRITERIA, EPIC_CRITERIA } from '${path.resolve('src/core/rubric/criteria.ts')}';
 `
 );
@@ -267,9 +267,18 @@ const goodStory = {
     iWant: 'to see the cards I have saved',
     soThat: 'I can complete payment without finding my wallet'
   },
-  description: '',
+  description:
+    'Render the saved-card list on the checkout page above the new-card form. Cards come from the ' +
+    'payment provider tokens already held against the account; nothing new is stored here. Reviewers ' +
+    'should check the ordering, the masked display, and what is shown when the provider is unreachable.',
   priority: 'Must',
-  acceptanceCriteria: [{ given: 'a shopper with two saved cards', when: 'the checkout page loads', then: 'both cards are listed' }],
+  acceptanceCriteria: [
+    { given: 'a shopper with two saved cards', when: 'the checkout page loads', then: 'both cards are listed, most recently used first' },
+    { given: 'a shopper with no saved cards', when: 'the checkout page loads', then: 'the new-card form is shown with no empty list' },
+    { given: 'the payment provider is unavailable', when: 'the checkout page loads', then: 'an error is shown and the new-card form still works' }
+  ],
+  outOfScope: ['Editing or deleting a saved card, which belongs to the account settings story'],
+  technicalNotes: ['Reads tokens from the payment provider; no card data is stored by us'],
   assumptions: ['Card tokens are already stored by the payment provider'],
   dependsOn: [],
   points: 3,
@@ -696,6 +705,46 @@ epics:
   check('new epic lists default to empty', Array.isArray(legacy.epics[0].successMeasures) && legacy.epics[0].successMeasures.length === 0);
   check('priority defaults on an older story', legacy.epics[0].stories[0].priority === 'Should');
   check('an older backlog renders without throwing', m.epicToMarkdown(legacy.epics[0]).includes('Priority:'));
+}
+
+/* --------------------------------------------------- stories with substance */
+
+{
+  const thin = { ...goodStory, description: 'Show the cards.' };
+  const thinQ = m.evaluateBacklog(backlogOf([{ ...goodEpic, stories: [thin] }]), m.DEFAULT_RUBRIC)
+    .items.find((i) => i.ref === goodStory.ref);
+  check('a one-line description is reported', thinQ.warnings.some((f) => f.ruleId === 'thin-description'));
+
+  const oneCriterion = { ...goodStory, acceptanceCriteria: [goodStory.acceptanceCriteria[0]] };
+  const oneQ = m.evaluateBacklog(backlogOf([{ ...goodEpic, stories: [oneCriterion] }]), m.DEFAULT_RUBRIC)
+    .items.find((i) => i.ref === goodStory.ref);
+  check('a single acceptance criterion is reported', oneQ.warnings.some((f) => f.ruleId === 'too-few-criteria'));
+
+  const happyOnly = {
+    ...goodStory,
+    acceptanceCriteria: [
+      { given: 'a shopper', when: 'they open checkout', then: 'the page loads' },
+      { given: 'a shopper', when: 'they pick a card', then: 'it is selected' },
+      { given: 'a shopper', when: 'they confirm', then: 'the order is placed' }
+    ]
+  };
+  const happyQ = m.evaluateBacklog(backlogOf([{ ...goodEpic, stories: [happyOnly] }]), m.DEFAULT_RUBRIC)
+    .items.find((i) => i.ref === goodStory.ref);
+  check('criteria that are all happy path are reported',
+    happyQ.warnings.some((f) => f.ruleId === 'happy-path-only'), JSON.stringify(happyQ.warnings.map(w=>w.ruleId)));
+  check('a story covering failure and empty states is not reported',
+    m.evaluateBacklog(backlogOf([goodEpic]), m.DEFAULT_RUBRIC).items.find((i) => i.ref === goodStory.ref)
+      .warnings.every((f) => !['thin-description', 'too-few-criteria', 'happy-path-only'].includes(f.ruleId)));
+
+  // The new fields have to survive the whole path like every other one.
+  const viaJira2 = (md) => m.adfToMarkdown(m.markdownToAdf(md));
+  const back = m.parseStoryMarkdown('K-20', goodStory.title, viaJira2(m.storyToMarkdown(goodStory)), 'e');
+  check('story out of scope survives', back.outOfScope.join('|') === goodStory.outOfScope.join('|'), back.outOfScope.join('|'));
+  check('story technical notes survive', back.technicalNotes.join('|') === goodStory.technicalNotes.join('|'), back.technicalNotes.join('|'));
+  check('story description survives', back.description === goodStory.description, back.description?.slice(0, 60));
+  check('all three criteria survive', back.acceptanceCriteria.length === 3);
+  check('changing technical notes changes the fingerprint',
+    m.storyFingerprint(goodStory) !== m.storyFingerprint({ ...goodStory, technicalNotes: ['different'] }));
 }
 
 /* ------------------------------------------------------------ terminology */

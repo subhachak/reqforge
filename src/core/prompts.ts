@@ -130,6 +130,15 @@ export function proposeStoriesPrompt(epics: EpicItem[], skeleton: PrdSkeleton): 
     '- Name a concrete role in the "as a" clause, drawn from the personas below.',
     '- Have acceptance criteria that a QA engineer could execute without asking questions.',
     '',
+    'Write each story for a developer who has not read the requirements document. A title, a',
+    'narrative and three happy-path criteria is not enough to start work from. Specifically:',
+    '- The description carries what the narrative cannot: what is built, which screens or services',
+    '  it touches, what happens at the boundaries, and what a reviewer should look at.',
+    '- Acceptance criteria cover the main path, at least one failure, the empty or first-run state,',
+    '  and any permission rule. Five or six is normal; three is the floor.',
+    '- Technical notes record constraints and systems touched — never a solution design.',
+    '- Out of scope names what a reader would assume is here but belongs to a sibling story.',
+    '',
     'Also record, per story: priority in MoSCoW terms, any assumptions being made, and any other ' +
       'stories that must land first. Leave dependencies empty wherever you honestly can — a story ' +
       'that depends on nothing is worth more than one that does, and Independence is scored.',

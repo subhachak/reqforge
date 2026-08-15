@@ -575,8 +575,38 @@ function StoryCard(props: {
             </div>
           </Field>
 
-          <Field label="Acceptance criteria" hint="what QA will actually check" name="acceptanceCriteria">
+          <Field label="Description" hint="what a developer needs that the narrative cannot carry" name="description">
+            <Grow value={s.description ?? ''} onChange={(v) => patch({ description: v })} rows={4} />
+          </Field>
+
+          <Field
+            label="Acceptance criteria"
+            hint="main path, at least one failure, the empty state, any permission rule"
+            name="acceptanceCriteria"
+          >
             <AcEditor items={s.acceptanceCriteria} onChange={(v) => patch({ acceptanceCriteria: v })} />
+          </Field>
+
+          <Field label="Out of scope" hint="what belongs to a sibling story" name="outOfScope">
+            <ListEditor
+              items={s.outOfScope ?? []}
+              onChange={(v) => patch({ outOfScope: v })}
+              placeholder="Something a reader would assume is here but is not"
+              addLabel="Add exclusion"
+            />
+          </Field>
+
+          <Field
+            label="Technical notes"
+            hint="constraints and systems touched — not how to build it"
+            name="technicalNotes"
+          >
+            <ListEditor
+              items={s.technicalNotes ?? []}
+              onChange={(v) => patch({ technicalNotes: v })}
+              placeholder="e.g. reads tokens from the payment provider; no card data stored here"
+              addLabel="Add note"
+            />
           </Field>
 
           <div className="row">

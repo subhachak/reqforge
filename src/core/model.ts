@@ -87,6 +87,8 @@ export function storyFingerprint(story: StoryProposal): string {
     ac: story.acceptanceCriteria,
     points: story.points,
     priority: story.priority,
+    outOfScope: story.outOfScope,
+    technicalNotes: story.technicalNotes,
     assumptions: story.assumptions,
     dependsOn: story.dependsOn,
     links: story.links
@@ -188,6 +190,12 @@ export function storyToMarkdown(story: StoryProposal): string {
       out.push(`- **Given** ${ac.given} **when** ${ac.when} **then** ${ac.then}`);
     }
     out.push('');
+  }
+  if (list(story.outOfScope).length) {
+    out.push('## Out of scope', ...story.outOfScope.map((o) => `- ${o}`), '');
+  }
+  if (list(story.technicalNotes).length) {
+    out.push('## Technical notes', ...story.technicalNotes.map((t) => `- ${t}`), '');
   }
   if (list(story.assumptions).length) {
     out.push('## Assumptions', ...story.assumptions.map((a) => `- ${a}`), '');

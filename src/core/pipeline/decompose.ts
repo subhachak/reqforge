@@ -152,7 +152,10 @@ export async function decomposeEpics(
   epicRefs: string[],
   opts: { batchSize?: number; progress?: Progress; token?: LlmCancellation } = {}
 ): Promise<Backlog> {
-  const batchSize = opts.batchSize ?? 3;
+  // Two epics per request, not three. A response carrying thirty stories spreads
+  // the model's effort thin and every story comes back shallow; the extra call
+  // buys noticeably more detail per story.
+  const batchSize = opts.batchSize ?? 2;
   const targets = backlog.epics.filter((e) => epicRefs.includes(e.ref));
   if (targets.length === 0) throw new Error('No matching epics found in this backlog.');
 

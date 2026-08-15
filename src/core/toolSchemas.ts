@@ -21,6 +21,26 @@ const acceptanceCriteria = {
   }
 } as const;
 
+/**
+ * Stories get their own, more demanding criteria description. Shared wording
+ * produced three happy-path criteria and nothing else, which is the single
+ * biggest reason generated stories read as thin.
+ */
+const storyAcceptanceCriteria = {
+  type: 'array',
+  description:
+    'At least three, and usually five or six. Between them they must cover: the main path; at least one failure or error case; the empty or first-run state where one exists; and any permission or visibility rule. Each is independently testable, names observable behaviour, and avoids judgement words such as "appropriate" or "correct".',
+  items: {
+    type: 'object',
+    properties: {
+      given: { type: 'string', description: 'Precondition or starting state, specific enough to set up.' },
+      when: { type: 'string', description: 'The single action taken.' },
+      then: { type: 'string', description: 'One observable, verifiable outcome. Do not chain several with "and".' }
+    },
+    required: ['given', 'when', 'then']
+  }
+} as const;
+
 export const PRD_SKELETON_SCHEMA = {
   type: 'object',
   properties: {
@@ -161,13 +181,29 @@ export const STORIES_SCHEMA = {
             },
             required: ['asA', 'iWant', 'soThat']
           },
-          description: { type: 'string' },
+          description: {
+            type: 'string',
+            description:
+              'Two or three short paragraphs of markdown giving a developer what the narrative cannot: what is being built, which screens or services it touches, what happens at the boundaries, and what a reviewer should look at. Written for somebody who has not read the requirements document. Never a restatement of the title or the narrative.'
+          },
           priority: {
             type: 'string',
             enum: ['Must', 'Should', 'Could'],
             description: 'MoSCoW. Inherit the epic\'s priority unless this story is plainly less or more urgent.'
           },
-          acceptanceCriteria,
+          acceptanceCriteria: storyAcceptanceCriteria,
+          outOfScope: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'What a reader would reasonably assume is included here but is not, usually because it belongs to a sibling story. Prevents the same work being built twice.'
+          },
+          technicalNotes: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Constraints and known considerations: systems and endpoints touched, data that has to migrate, rate limits, feature flags, anything previously agreed. State the constraint, not the solution — how to build it is the team\'s decision.'
+          },
           assumptions: {
             type: 'array',
             items: { type: 'string' },
@@ -196,7 +232,7 @@ export const STORIES_SCHEMA = {
           points: { type: 'number', enum: [1, 2, 3, 5, 8, 13] },
           openQuestions: { type: 'array', items: { type: 'string' } }
         },
-        required: ['ref', 'epicRef', 'title', 'narrative', 'priority', 'acceptanceCriteria', 'points']
+        required: ['ref', 'epicRef', 'title', 'narrative', 'description', 'priority', 'acceptanceCriteria', 'points']
       }
     }
   },

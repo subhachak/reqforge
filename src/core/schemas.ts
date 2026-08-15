@@ -85,6 +85,14 @@ export const StoryProposalSchema = z.object({
   description: z.string().default(''),
   priority: PrioritySchema,
   acceptanceCriteria: z.array(AcceptanceCriterionSchema).min(1),
+  /** What belongs to a sibling story, so the same work is not built twice. */
+  outOfScope: z.array(z.string()).default([]),
+  /**
+   * Constraints and known considerations — systems touched, data to migrate,
+   * flags. Deliberately not a solution design: INVEST scores Negotiability, and
+   * prescribing the how would undercut the thing being measured.
+   */
+  technicalNotes: z.array(z.string()).default([]),
   /** Decisions taken in order to proceed. Distinct from an unresolved question. */
   assumptions: z.array(z.string()).default([]),
   /**

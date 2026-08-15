@@ -187,6 +187,8 @@ export function parseStoryMarkdown(
     // The schema requires at least one criterion; an empty placeholder keeps a
     // hand-written issue loadable, and the rubric immediately flags it.
     acceptanceCriteria: parsedCriteria.length > 0 ? parsedCriteria : [{ given: '', when: '', then: '' }],
+    outOfScope: bullets(sections.get('out of scope')),
+    technicalNotes: bullets(sections.get('technical notes')),
     assumptions: bullets(sections.get('assumptions')),
     dependsOn: bullets(sections.get('depends on')),
     links: links(sections.get('links')),

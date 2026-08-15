@@ -658,6 +658,8 @@ export class BacklogPanel {
           description: '',
           priority: 'Should',
           acceptanceCriteria: [{ given: '', when: '', then: '' }],
+          outOfScope: [],
+          technicalNotes: [],
           assumptions: [],
           dependsOn: [],
           links: [],

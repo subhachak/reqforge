@@ -226,7 +226,7 @@ of truth for both.
 | Ordering | priority (MoSCoW), sizing | priority (MoSCoW), points |
 | Boundaries | inScope, outOfScope | — |
 | Evidence | successMeasures, acceptanceCriteria, sourceEvidence | acceptanceCriteria |
-| Constraints | nonFunctional, assumptions, dependsOn | assumptions, dependsOn |
+| Constraints | nonFunctional, assumptions, dependsOn | outOfScope, technicalNotes, assumptions, dependsOn |
 | Elsewhere | links (design / spec / reference) | links (design / spec / reference) |
 | Unknowns | openQuestions | openQuestions |
 
@@ -244,6 +244,23 @@ of truth for both.
 
 Every field also costs prompt tokens on every call and another thing a product owner has to read,
 which is the argument for adding few.
+
+**Why generated stories were thin, and what fixed it.** Mostly not the field set. The story
+`description` in the tool schema was `{ type: 'string' }` with no guidance at all, where the epic's
+said "two to four paragraphs" — so the model had nothing to aim at and wrote one sentence. Three
+changes, in order of effect:
+
+1. Real guidance on the description and on story acceptance criteria, which now ask for coverage —
+   the main path, at least one failure, the empty or first-run state, any permission rule — rather
+   than a count.
+2. Two epics per request instead of three. A response carrying thirty stories spreads the model's
+   effort thin and every story comes back shallow; the extra call buys noticeably more per story.
+3. `technicalNotes` and `outOfScope` on stories, and three rules that make thinness visible:
+   a description under 120 characters, fewer than three criteria, and criteria that are all happy
+   path with no failure or empty state among them.
+
+`technicalNotes` records constraints and systems touched, never a solution design. INVEST scores
+Negotiability and prescribing the how would undercut the thing being measured.
 
 **Links** are typed — `design`, `spec`, `reference` — rather than a `figmaUrl` field. A named field
 per tool means a schema change through all eight files the first time somebody wants to attach a

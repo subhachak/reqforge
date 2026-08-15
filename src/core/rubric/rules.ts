@@ -249,6 +249,36 @@ const STORY_RULES: Rule<StoryItem>[] = [
     }
   },
   {
+    id: 'thin-description',
+    severity: 'warn',
+    field: 'description',
+    check: (s) =>
+      (s.description ?? '').trim().length < 120
+        ? 'The description is too short to start work from — say what is built, what it touches, and what happens at the boundaries.'
+        : undefined
+  },
+  {
+    id: 'too-few-criteria',
+    severity: 'warn',
+    field: 'acceptanceCriteria',
+    check: (s) =>
+      s.acceptanceCriteria.length < 3
+        ? `Only ${s.acceptanceCriteria.length} acceptance criterion(s) — the main path alone rarely covers a story. Add the failure and empty states.`
+        : undefined
+  },
+  {
+    id: 'happy-path-only',
+    severity: 'info',
+    field: 'acceptanceCriteria',
+    check: (s) => {
+      const text = s.acceptanceCriteria.map((ac) => `${ac.given} ${ac.when} ${ac.then}`).join(' ').toLowerCase();
+      const coversFailure = /(invalid|error|fail|denied|unavailable|timeout|expired|rejected|missing|empty|none|no results|first time)/.test(text);
+      return s.acceptanceCriteria.length >= 3 && !coversFailure
+        ? 'Every criterion looks like a happy path. What happens when it fails, or when there is nothing to show?'
+        : undefined;
+    }
+  },
+  {
     id: 'generic-persona',
     severity: 'warn',
     field: 'narrative',
