@@ -260,6 +260,40 @@ pre.readonly {
   font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; color: var(--muted);
 }
 
+/* --------------------------------------------------------------- quality */
+
+.pill {
+  flex-shrink: 0; font-size: 11px; font-weight: 700; padding: 2px 8px;
+  border-radius: 999px; letter-spacing: 0.02em; white-space: nowrap;
+}
+.pill.good    { background: var(--green); color: #08240a; }
+.pill.pass    { background: color-mix(in srgb, var(--green) 30%, transparent); color: var(--green); }
+.pill.fail    { background: color-mix(in srgb, var(--red) 25%, transparent); color: var(--red); }
+.pill.unknown { background: var(--secondary); color: var(--muted); font-weight: 500; }
+
+.finding {
+  display: flex; gap: 10px; align-items: baseline;
+  padding: 6px 0; border-bottom: 1px solid var(--border);
+}
+.finding:last-of-type { border-bottom: none; }
+.finding.blocker { color: var(--fg); }
+.finding.warn, .finding.info { color: var(--muted); }
+
+.criteria { margin-top: 12px; }
+.criterion {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 10px 0; border-bottom: 1px solid var(--border);
+}
+.criterion:last-child { border-bottom: none; }
+
+/* Four ticks, filled to the rating. Coarser than a bar, and harder to misread. */
+.criterion .rating { display: flex; gap: 3px; flex-shrink: 0; padding-top: 5px; width: 36px; }
+.criterion .tick { width: 8px; height: 8px; border-radius: 2px; background: var(--border); }
+.criterion .tick.on { background: var(--muted); }
+.criterion .tick.on.r0, .criterion .tick.on.r1 { background: var(--red); }
+.criterion .tick.on.r2 { background: var(--yellow); }
+.criterion .tick.on.r3 { background: var(--green); }
+
 .empty { padding: 60px 24px; text-align: center; color: var(--muted); }
 .empty h2 { color: var(--fg); font-size: 16px; margin: 0 0 8px; }
 .empty p { max-width: 420px; margin: 0 auto 18px; }

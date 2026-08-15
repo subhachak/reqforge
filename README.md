@@ -128,6 +128,60 @@ The restricted build runs a **compliance guard** (`esbuild.mjs`) that greps the 
 
 ---
 
+## Quality rubric
+
+Every item is scored, and items must pass a threshold before they can be sent to Jira.
+
+**The model never produces a score.** It rates each *named criterion* 0–3 against a supplied
+definition and explicit anchors, and must justify each rating by citing the text that earned it.
+The score is computed in `score.ts` from those ratings and configurable weights. A number a model
+invented is not reproducible and cannot be argued with; a number derived from *"Independent: 1 —
+this cannot start until the schema story lands"* can be.
+
+- **Stories: INVEST** (Wake, 2003) verbatim — Independent, Negotiable, Valuable, Estimable,
+  Small, Testable.
+- **Epics: no equally canonical rubric exists.** INVEST gets stretched to fit, but "Negotiable"
+  and "Small" mean little at quarter scale. So: the INVEST ideas that transfer, plus
+  Outcome-focused, Coherent, Bounded, Right-sized, and **Traceable** — the last is what a
+  regulated client actually audits, and why `sourceEvidence` has been in the schema from the start.
+- **20 deterministic rules** run on every edit with no model call: missing acceptance criteria,
+  incomplete given/when/then, dangling dependencies, generic personas, untestable language,
+  layer-shaped epic titles, a "so that" that merely restates the "I want".
+
+`score = Σ(rating × weight) / Σ(3 × weight) × 100`, default threshold **70**.
+
+Three properties worth knowing, each covered by a test because each is a way this could quietly
+go wrong:
+
+- **Blockers fail an item at any score.** An epic with no acceptance criteria and all-3 ratings
+  scores 100 and still fails. A well-written story that is incomplete is not a good story.
+- **Disabling a criterion does not cap the maximum** — a client who zeroes out Traceable can
+  still reach 100.
+- **Unassessed criteria are excluded, not scored zero**, so a partial assessment cannot fake a
+  bad score. An item nobody has reviewed reads as "not reviewed", never as passing.
+
+Assessments are cached by content fingerprint in `.reqforge/<slug>.quality.json`, so editing an
+item invalidates its score rather than showing a stale one. The model pass is batched — Copilot
+offers no prompt caching, so one call per story would burn quota for nothing.
+
+### Making it your own standard
+
+```yaml
+# .reqforge/rubric.yaml
+threshold: 80
+enforcement: block          # or warn, to allow an override with a confirmation
+weights:
+  epic-traceable: 2         # this client audits traceability
+  invest-negotiable: 0      # and does not care about this one
+rules:
+  has-evidence: blocker
+  sizing-xl: off
+```
+
+"Create rubric file" in the panel writes a commented starting point listing every rule and
+criterion id. The client's Definition of Ready then lives in git and gets reviewed like anything
+else — which is also the mechanism that makes this reusable across clients.
+
 ## The pipeline
 
 PRD → epics runs in stages rather than one call. Each is separately retryable and separately inspectable, and the intermediate skeleton is itself a deliverable — the open questions it surfaces are often the most valuable output of the whole run.

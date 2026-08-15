@@ -19,7 +19,11 @@ const port = Number(process.argv[3] ?? 5177);
 
 await esbuild.build({
   stdin: {
-    contents: `export { deserializeBacklog } from '${path.resolve('src/core/store.ts')}';`,
+    contents: `export { deserializeBacklog } from '${path.resolve('src/core/store.ts')}';
+       export { evaluateBacklog, cacheKey } from '${path.resolve('src/core/rubric/score.ts')}';
+       export { DEFAULT_RUBRIC } from '${path.resolve('src/core/rubric/types.ts')}';
+       export { EPIC_CRITERIA, STORY_CRITERIA } from '${path.resolve('src/core/rubric/criteria.ts')}';
+       export { epicFingerprint, storyFingerprint } from '${path.resolve('src/core/model.ts')}';`,
     resolveDir: process.cwd(),
     loader: 'ts'
   },
@@ -29,7 +33,8 @@ await esbuild.build({
   format: 'cjs',
   logLevel: 'error'
 });
-const { deserializeBacklog } = createRequire(import.meta.url)('/tmp/reqforge-harness-store.cjs');
+const { deserializeBacklog, evaluateBacklog, cacheKey, DEFAULT_RUBRIC, EPIC_CRITERIA, STORY_CRITERIA, epicFingerprint, storyFingerprint } =
+  createRequire(import.meta.url)('/tmp/reqforge-harness-store.cjs');
 
 /** A backlog covering every status the UI renders, used when none is supplied. */
 const SAMPLE = {
@@ -82,6 +87,34 @@ if (backlog.epics[0]) {
 }
 if (backlog.epics[1]) backlog.epics[1].sync = { jiraKey: 'DEMO-9' };
 
+/* A quality fixture covering every visual state: reviewed-good, reviewed-poor,
+   blocked, and not-yet-reviewed. */
+const CRITERIA = [...EPIC_CRITERIA, ...STORY_CRITERIA];
+
+function ratingsFor(level, rating) {
+  return (level === 'epic' ? EPIC_CRITERIA : STORY_CRITERIA).map((c) => ({
+    id: c.id,
+    rating,
+    justification:
+      rating >= 3
+        ? 'The item states this explicitly and the wording is unambiguous.'
+        : 'The wording leaves this open to interpretation, so a team would have to ask.',
+    suggestion: rating >= 3 ? '' : 'Name the specific role and restate the outcome as something a tester can observe.'
+  }));
+}
+
+function buildQuality() {
+  const cached = new Map();
+  const epics = backlog.epics;
+  if (epics[0]) cached.set(cacheKey('epic', epics[0].ref, epicFingerprint(epics[0])), ratingsFor('epic', 3));
+  if (epics[1]) cached.set(cacheKey('epic', epics[1].ref, epicFingerprint(epics[1])), ratingsFor('epic', 1));
+  if (epics[2]) cached.set(cacheKey('epic', epics[2].ref, epicFingerprint(epics[2])), ratingsFor('epic', 2));
+  for (const s of epics[0]?.stories ?? []) {
+    cached.set(cacheKey('story', s.ref, storyFingerprint(s)), ratingsFor('story', s.points >= 5 ? 2 : 3));
+  }
+  return evaluateBacklog(backlog, DEFAULT_RUBRIC, cached);
+}
+
 const complete = process.env.HARNESS_SETUP !== 'incomplete';
 const view = process.env.HARNESS_VIEW || (complete ? 'home' : 'setup');
 
@@ -130,7 +163,10 @@ const state = {
   pendingRefine: undefined,
   jiraBrowseBase: 'https://example.atlassian.net',
   undoLabel: 'edit',
-  redoLabel: undefined
+  redoLabel: undefined,
+  criteria: CRITERIA,
+  rubric: { threshold: 70, enforcement: 'block', source: 'default' },
+  quality: buildQuality()
 };
 
 const html = `<!DOCTYPE html>

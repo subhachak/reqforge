@@ -2,6 +2,7 @@ import { StrictMode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, u
 import { createRoot } from 'react-dom/client';
 import type { EpicItem, StoryItem } from '../core/model';
 import type { AcceptanceCriterion } from '../core/schemas';
+import type { CriterionDef, ItemQuality } from '../core/rubric/index';
 import type { HostMessage, PanelState, WebviewMessage } from '../shared/protocol';
 import './styles.css';
 
@@ -40,7 +41,10 @@ const EMPTY: PanelState = {
   pendingRefine: undefined,
   jiraBrowseBase: '',
   undoLabel: undefined,
-  redoLabel: undefined
+  redoLabel: undefined,
+  quality: undefined,
+  criteria: [],
+  rubric: { threshold: 70, enforcement: 'block', source: 'default' }
 };
 
 /* ------------------------------------------------------------- primitives */
@@ -176,6 +180,133 @@ function AcEditor(props: { items: AcceptanceCriterion[]; onChange: (v: Acceptanc
   );
 }
 
+/* ----------------------------------------------------------------- quality */
+
+function scoreClass(q: ItemQuality | undefined): string {
+  if (!q || q.deterministicOnly) return 'unknown';
+  if (!q.passed) return 'fail';
+  return q.score >= 85 ? 'good' : 'pass';
+}
+
+/** Compact score pill. Shows blocker count rather than a score when blocked. */
+function ScorePill({ quality }: { quality: ItemQuality | undefined }) {
+  if (!quality) return null;
+  if (quality.blockedBy.length > 0) {
+    return (
+      <span className="pill fail" title={quality.blockedBy.map((b) => b.message).join('\n')}>
+        {quality.blockedBy.length} blocker{quality.blockedBy.length > 1 ? 's' : ''}
+      </span>
+    );
+  }
+  if (quality.deterministicOnly) {
+    return (
+      <span className="pill unknown" title="Not reviewed yet — run a quality review">
+        not reviewed
+      </span>
+    );
+  }
+  return (
+    <span
+      className={`pill ${scoreClass(quality)}`}
+      title={`${quality.score} of 100, threshold ${quality.threshold}`}
+    >
+      {quality.score}
+    </span>
+  );
+}
+
+/** Full breakdown: every criterion, its rating, why, and what would fix it. */
+function QualityPanel({
+  quality,
+  criteria,
+  busy,
+  onFix,
+  onReview
+}: {
+  quality: ItemQuality | undefined;
+  criteria: CriterionDef[];
+  busy: boolean;
+  onFix: () => void;
+  onReview: () => void;
+}) {
+  if (!quality) return null;
+  const hasFindings = quality.blockedBy.length > 0 || quality.warnings.length > 0;
+
+  return (
+    <>
+      <div className="section-head">
+        <h2>Quality</h2>
+        <ScorePill quality={quality} />
+        {!quality.deterministicOnly && (
+          <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+            threshold {quality.threshold} · {quality.passed ? 'ready' : 'not ready'}
+          </span>
+        )}
+        <div className="spacer" />
+        {hasFindings && (
+          <button disabled={busy} onClick={onFix} title="Rewrite this item to address the findings below">
+            Fix with AI
+          </button>
+        )}
+        <button disabled={busy} onClick={onReview}>
+          {quality.deterministicOnly ? 'Review quality' : 'Re-review'}
+        </button>
+      </div>
+
+      {quality.blockedBy.map((f) => (
+        <div className="finding blocker" key={f.ruleId}>
+          <span className="badge create" style={{ background: 'var(--red)' }}>
+            blocker
+          </span>
+          <span>{f.message}</span>
+        </div>
+      ))}
+      {quality.warnings.map((f) => (
+        <div className={`finding ${f.severity}`} key={f.ruleId}>
+          <span className="badge skip">{f.severity}</span>
+          <span>{f.message}</span>
+        </div>
+      ))}
+
+      {quality.deterministicOnly ? (
+        <p style={{ color: 'var(--muted)', marginTop: 12 }}>
+          Automatic checks only. Run a quality review to rate this against{' '}
+          {quality.level === 'story' ? 'INVEST' : 'the epic rubric'}.
+        </p>
+      ) : (
+        <div className="criteria">
+          {quality.criteria.map((c) => {
+            const def = criteria.find((d) => d.id === c.id);
+            return (
+              <div className="criterion" key={c.id}>
+                {/* Three ticks, filled to the rating: 0 shows none, 3 shows all. */}
+                <div className="rating" title={`${c.rating} of 3`}>
+                  {[1, 2, 3].map((n) => (
+                    <span key={n} className={`tick ${n <= c.rating ? `on r${c.rating}` : ''}`} />
+                  ))}
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div>
+                    <strong>{def?.name ?? c.id}</strong>{' '}
+                    <span style={{ color: 'var(--muted)', fontSize: 11 }}>{def?.standard}</span>
+                  </div>
+                  <div style={{ color: 'var(--muted)' }}>{c.justification}</div>
+                  {c.suggestion && c.rating < 3 && (
+                    <div style={{ marginTop: 2 }}>
+                      <span style={{ color: 'var(--muted)' }}>Suggested: </span>
+                      {c.suggestion}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
 /* ------------------------------------------------------------------ status */
 
 type Status = 'new' | 'edited' | 'synced';
@@ -197,9 +328,13 @@ function StoryCard(props: {
   story: StoryItem;
   jiraBase: string;
   busy: boolean;
+  quality: ItemQuality | undefined;
+  criteria: CriterionDef[];
   onChange: (s: StoryItem) => void;
   onDelete: () => void;
   onRefine: (instruction: string) => void;
+  onFix: () => void;
+  onReview: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [instruction, setInstruction] = useState('');
@@ -212,6 +347,7 @@ function StoryCard(props: {
       <div className="story-head" onClick={() => setOpen(!open)}>
         <span className={`dot ${status}`} title={STATUS_LABEL[status]} />
         <span className="title">{s.title || 'Untitled story'}</span>
+        <ScorePill quality={props.quality} />
         <span className="chip">{s.points} pts</span>
         {s.sync.jiraKey && (
           <a
@@ -276,6 +412,14 @@ function StoryCard(props: {
             </Field>
           )}
 
+          <QualityPanel
+            quality={props.quality}
+            criteria={props.criteria}
+            busy={props.busy}
+            onFix={props.onFix}
+            onReview={props.onReview}
+          />
+
           <div className="refine">
             <input
               value={instruction}
@@ -311,6 +455,11 @@ function EpicDetail(props: {
   epic: EpicItem;
   jiraBase: string;
   busy: boolean;
+  quality: ItemQuality | undefined;
+  qualityFor: (level: 'epic' | 'story', ref: string) => ItemQuality | undefined;
+  criteria: CriterionDef[];
+  onFix: (level: 'epic' | 'story', ref: string) => void;
+  onReview: () => void;
   onChange: (e: EpicItem) => void;
   onDelete: () => void;
   onRefine: (level: 'epic' | 'story', ref: string, instruction: string) => void;
@@ -329,6 +478,7 @@ function EpicDetail(props: {
       <div className="chip-row" style={{ marginBottom: 14 }}>
         <span className={`dot ${status}`} />
         <span style={{ color: 'var(--muted)', fontSize: 12 }}>{STATUS_LABEL[status]}</span>
+        <ScorePill quality={props.quality} />
         {e.sync.jiraKey && (
           <a
             className="chip link"
@@ -406,6 +556,14 @@ function EpicDetail(props: {
         </Field>
       )}
 
+      <QualityPanel
+        quality={props.quality}
+        criteria={props.criteria}
+        busy={props.busy}
+        onFix={() => props.onFix('epic', e.ref)}
+        onReview={props.onReview}
+      />
+
       <div className="refine">
         <input
           value={instruction}
@@ -455,9 +613,13 @@ function EpicDetail(props: {
           story={s}
           jiraBase={props.jiraBase}
           busy={props.busy}
+          quality={props.qualityFor('story', s.ref)}
+          criteria={props.criteria}
           onChange={(next) => patch({ stories: e.stories.map((x) => (x.ref === s.ref ? next : x)) })}
           onDelete={() => props.onDeleteStory(s.ref)}
           onRefine={(instr) => props.onRefine('story', s.ref, instr)}
+          onFix={() => props.onFix('story', s.ref)}
+          onReview={props.onReview}
         />
       ))}
     </>
@@ -974,6 +1136,12 @@ function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [flush]);
 
+  /** Quality is keyed by level and ref; the host recomputes it on every state push. */
+  const qualityFor = useCallback(
+    (level: 'epic' | 'story', ref: string) => state.quality?.items.find((i) => i.level === level && i.ref === ref),
+    [state.quality]
+  );
+
   const current = useMemo(() => epics.find((e) => e.ref === selected), [epics, selected]);
   const onlyRefs = useMemo(() => [...included], [included]);
 
@@ -1120,6 +1288,19 @@ function App() {
           >
             ↷ Redo
           </button>
+          {state.quality && (
+            <span
+              className={`pill ${state.quality.unassessed > 0 ? 'unknown' : state.quality.failed > 0 ? 'fail' : 'pass'}`}
+              title={`Average score across reviewed items. Threshold ${state.quality.threshold}.`}
+            >
+              {state.quality.unassessed === state.quality.items.length
+                ? 'not reviewed'
+                : `${state.quality.score} avg · ${state.quality.failed} below`}
+            </span>
+          )}
+          <button disabled={state.busy} onClick={() => act({ type: 'deepReview' })} title="Rate every item against the rubric">
+            Review quality
+          </button>
           <button className="ghost" onClick={() => act({ type: 'navigate', view: 'setup' })}>
             ⚙
           </button>
@@ -1208,6 +1389,7 @@ function App() {
                     {e.sync.jiraKey ? ` · ${e.sync.jiraKey}` : ''}
                   </div>
                 </div>
+                <ScorePill quality={qualityFor('epic', e.ref)} />
               </div>
             );
           })}
@@ -1222,6 +1404,11 @@ function App() {
               epic={current}
               jiraBase={state.jiraBrowseBase}
               busy={state.busy}
+              quality={qualityFor('epic', current.ref)}
+              qualityFor={qualityFor}
+              criteria={state.criteria}
+              onFix={(level, ref) => act({ type: 'fixItem', level, ref })}
+              onReview={() => act({ type: 'deepReview', only: [current.ref] })}
               onChange={(next) => edit(epics.map((x) => (x.ref === next.ref ? next : x)))}
               onDelete={() => act({ type: 'deleteItem', level: 'epic', ref: current.ref })}
               onDeleteStory={(ref) => act({ type: 'deleteItem', level: 'story', ref })}

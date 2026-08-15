@@ -8,6 +8,24 @@ import { applyRefinement, refineBacklogItem, type LocalRefineResult } from '../c
 import { LlmUnavailableError, type AtlassianPort, type LlmPort } from '../core/ports';
 import { BacklogStore } from '../core/store';
 import { refineIssue } from '../core/pipeline/refine';
+import {
+  ALL_CRITERIA,
+  DEFAULT_RUBRIC,
+  RULE_IDS,
+  assessBacklog,
+  cacheKey,
+  evaluateBacklog,
+  fixInstruction,
+  loadAssessments,
+  loadRubric,
+  pruneAssessments,
+  sampleRubricYaml,
+  saveAssessments,
+  type BacklogQuality,
+  type CriterionResult,
+  type RubricConfig
+} from '../core/rubric/index';
+import { epicFingerprint, storyFingerprint } from '../core/model';
 import type {
   HostMessage,
   JiraSession,
@@ -60,6 +78,12 @@ export class BacklogPanel {
   private notice: PanelState['notice'];
   private busy = false;
   private busyLabel = '';
+  private rubric: RubricConfig = DEFAULT_RUBRIC;
+  private rubricSource: 'default' | 'file' = 'default';
+  private rubricProblem: string | undefined;
+  /** Model assessments, keyed by level:ref:fingerprint so edits invalidate them. */
+  private assessments = new Map<string, CriterionResult[]>();
+
   /** Connection test results, only refreshed on an explicit test. */
   private probes = {
     atlassian: { state: 'unknown', detail: '' } as SetupState['atlassian'],
@@ -173,9 +197,99 @@ export class BacklogPanel {
         : undefined,
       jiraBrowseBase: setup.baseUrl.replace(/\/+$/, ''),
       undoLabel: this.history[this.history.length - 1]?.label,
-      redoLabel: this.future[this.future.length - 1]?.label
+      redoLabel: this.future[this.future.length - 1]?.label,
+      quality: this.quality(),
+      criteria: ALL_CRITERIA,
+      rubric: {
+        threshold: this.rubric.threshold,
+        enforcement: this.rubric.enforcement,
+        source: this.rubricSource,
+        problem: this.rubricProblem
+      }
     };
     this.post({ type: 'state', state });
+  }
+
+  /* -------------------------------------------------------------- quality */
+
+  /** Deterministic rules cost nothing, so quality is recomputed on every render. */
+  private quality(): BacklogQuality | undefined {
+    return this.backlog ? evaluateBacklog(this.backlog, this.rubric, this.assessments) : undefined;
+  }
+
+  private liveKeys(): Set<string> {
+    const keys = new Set<string>();
+    for (const epic of this.backlog?.epics ?? []) {
+      keys.add(cacheKey('epic', epic.ref, epicFingerprint(epic)));
+      for (const story of epic.stories) keys.add(cacheKey('story', story.ref, storyFingerprint(story)));
+    }
+    return keys;
+  }
+
+  private async saveAssessments() {
+    if (!this.slug) return;
+    this.assessments = pruneAssessments(this.assessments, this.liveKeys());
+    await saveAssessments(new WorkspaceFs(), dataFolder(), this.slug, this.assessments);
+  }
+
+  private async deepReview(only?: string[]) {
+    if (!this.backlog) return;
+    await this.run('Reviewing quality…', async () => {
+      const { llm } = await this.ports();
+      const epicRefs = only ?? this.backlog!.epics.map((e) => e.ref);
+      const storyRefs = this.backlog!.epics.filter((e) => epicRefs.includes(e.ref)).flatMap((e) =>
+        e.stories.map((s) => s.ref)
+      );
+
+      this.assessments = await assessBacklog(llm, this.backlog!, this.rubric, {
+        only: { epics: epicRefs, stories: storyRefs },
+        cached: this.assessments,
+        progress: {
+          report: (message) => {
+            this.busyLabel = message;
+            void this.send();
+          }
+        }
+      });
+      await this.saveAssessments();
+
+      const q = this.quality()!;
+      this.notice = {
+        kind: q.failed > 0 ? 'warn' : 'info',
+        message: `Quality review complete — average ${q.score}, ${q.passed} of ${q.passed + q.failed} items at or above ${q.threshold}.`,
+        hint: q.failed > 0 ? `${q.failed} item(s) need work before they can be sent.` : undefined
+      };
+    });
+  }
+
+  /** Turns an item's findings into a refine instruction and runs the normal rewrite flow. */
+  private async fixItem(level: 'epic' | 'story', ref: string) {
+    const q = this.quality();
+    const item = q?.items.find((i) => i.level === level && i.ref === ref);
+    if (!item) return;
+    await this.refine(level, ref, fixInstruction(item));
+  }
+
+  private async createRubricFile() {
+    const fs = new WorkspaceFs();
+    const relPath = `${dataFolder()}/rubric.yaml`;
+    if (await fs.read(relPath)) {
+      this.notice = { kind: 'info', message: 'rubric.yaml already exists.' };
+    } else {
+      await fs.write(relPath, sampleRubricYaml(RULE_IDS, ALL_CRITERIA.map((c) => c.id)));
+      await this.reloadRubric();
+      this.notice = { kind: 'info', message: 'Created .reqforge/rubric.yaml — edit it to set your own standard.' };
+    }
+    const uri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, ...relPath.split('/'));
+    await vscode.window.showTextDocument(uri);
+    await this.send();
+  }
+
+  private async reloadRubric() {
+    const loaded = await loadRubric(new WorkspaceFs(), dataFolder());
+    this.rubric = loaded.config;
+    this.rubricSource = loaded.source;
+    this.rubricProblem = loaded.problem;
   }
 
   /* ---------------------------------------------------------------- undo */
@@ -233,6 +347,8 @@ export class BacklogPanel {
     this.plan = undefined;
     this.pendingRefine = undefined;
     this.clearHistory();
+    await this.reloadRubric();
+    this.assessments = await loadAssessments(new WorkspaceFs(), dataFolder(), slug);
     await this.send();
   }
 
@@ -342,6 +458,18 @@ export class BacklogPanel {
 
       case 'redo':
         await this.redo();
+        return;
+
+      case 'deepReview':
+        await this.deepReview(msg.only);
+        return;
+
+      case 'fixItem':
+        await this.fixItem(msg.level, msg.ref);
+        return;
+
+      case 'createRubricFile':
+        await this.createRubricFile();
         return;
 
       case 'dismissNotice':
@@ -624,6 +752,42 @@ export class BacklogPanel {
   private async push(only: string[]) {
     if (!this.backlog || !this.plan) return;
     const plan = this.plan;
+
+    // The gate is enforced here, on the host, and not only in the webview. A
+    // disabled button is a hint; this is the rule.
+    const q = this.quality();
+    const included = new Set(only);
+    const failing = (q?.items ?? []).filter((i) => {
+      if (i.passed) return false;
+      const epicRef = i.level === 'epic' ? i.ref : this.backlog!.epics.find((e) => e.stories.some((s) => s.ref === i.ref))?.ref;
+      return epicRef ? included.has(epicRef) : false;
+    });
+
+    if (failing.length > 0) {
+      const summary = failing
+        .slice(0, 6)
+        .map((i) => `• ${i.title} — ${i.deterministicOnly ? 'not reviewed yet' : `${i.score}/${i.threshold}`}`)
+        .join('\n');
+      const more = failing.length > 6 ? `\n…and ${failing.length - 6} more.` : '';
+
+      if (this.rubric.enforcement === 'block') {
+        this.notice = {
+          kind: 'error',
+          message: `${failing.length} item(s) have not met the quality threshold of ${this.rubric.threshold}.`,
+          hint: 'Run a quality review, use Fix, or relax the rubric in .reqforge/rubric.yaml.'
+        };
+        this.plan = undefined;
+        await this.send();
+        return;
+      }
+
+      const proceed = await vscode.window.showWarningMessage(
+        `${failing.length} item(s) are below the quality threshold.`,
+        { modal: true, detail: `${summary}${more}` },
+        'Send Anyway'
+      );
+      if (proceed !== 'Send Anyway') return;
+    }
 
     const counts = plan.actions.reduce(
       (acc, a) => ({ ...acc, [a.verb]: (acc as Record<string, number>)[a.verb] + 1 }),

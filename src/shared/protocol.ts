@@ -1,5 +1,6 @@
 import type { Backlog, EpicItem } from '../core/model';
 import type { PushPlan, PushResult } from '../core/pipeline/push';
+import type { BacklogQuality, CriterionDef } from '../core/rubric/index';
 
 /**
  * The webview/host contract. Shared by both bundles, so a change breaks the
@@ -70,6 +71,13 @@ export interface PanelState {
   jiraBrowseBase: string;
   undoLabel: string | undefined;
   redoLabel: string | undefined;
+
+  /** Recomputed on every render; deterministic rules are free. */
+  quality: BacklogQuality | undefined;
+  /** Criterion definitions, so the webview can show names and standards without duplicating them. */
+  criteria: CriterionDef[];
+  /** Where the rubric came from, and any problem loading it. */
+  rubric: { threshold: number; enforcement: 'block' | 'warn'; source: 'default' | 'file'; problem?: string };
 }
 
 export type HostMessage = { type: 'state'; state: PanelState } | { type: 'pushed'; result: PushResult };
@@ -108,6 +116,10 @@ export type WebviewMessage =
   | { type: 'push'; only: string[] }
   | { type: 'undo' }
   | { type: 'redo' }
+  /* quality */
+  | { type: 'deepReview'; only?: string[] }
+  | { type: 'fixItem'; level: 'epic' | 'story'; ref: string }
+  | { type: 'createRubricFile' }
   /* chrome */
   | { type: 'dismissNotice' }
   | { type: 'dismissPlan' }
