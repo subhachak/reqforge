@@ -36,11 +36,26 @@ export async function backlogFromJiraIssue(
   opts.progress?.report(`Fetching ${key}…`);
   const issue = await atlassian.getIssue(key);
 
-  const looksLikeEpic = issue.issueType.toLowerCase().includes('epic');
+  return isEpic(issue)
+    ? epicBacklog(atlassian, issue, target, opts)
+    : storyBacklog(atlassian, issue, target, opts);
+}
+
+function isEpic(issue: IssueDetail): boolean {
+  return issue.issueType.toLowerCase().includes('epic');
+}
+
+/** An epic, with its children pulled in as stories. */
+async function epicBacklog(
+  atlassian: AtlassianPort,
+  issue: IssueDetail,
+  target: { projectKey: string; epicIssueType: string; storyIssueType: string },
+  opts: FromJiraOptions
+): Promise<FromJiraResult> {
   const epicRef = slugify(issue.key);
 
   let children: IssueDetail[] = [];
-  if (looksLikeEpic && opts.includeChildren !== false && atlassian.capabilities().has('jira.children')) {
+  if (opts.includeChildren !== false && atlassian.capabilities().has('jira.children')) {
     opts.progress?.report(`Looking for stories under ${issue.key}…`);
     children = await atlassian
       .searchIssueDetails(`parent = "${issue.key}" ORDER BY created ASC`, 200)
@@ -52,33 +67,95 @@ export async function backlogFromJiraIssue(
       });
   }
 
-  const epicProposal = parseEpicMarkdown(issue.key, issue.summary, issue.description);
-  const unstructured = epicProposal.acceptanceCriteria.length === 0 && !epicProposal.outcome;
+  const epic = epicItemFrom(issue, children.map((c) => storyItemFrom(c, epicRef)));
+  return {
+    backlog: assemble(issue, [epic], target, epic),
+    slug: slugify(issue.key),
+    unstructured: isUnstructured(epic)
+  };
+}
 
-  const stories: StoryItem[] = children.map((child) => {
-    const parsed = parseStoryMarkdown(child.key, child.summary, child.description, epicRef);
-    return {
-      ...parsed,
-      sync: {
-        jiraKey: child.key,
-        jiraUrl: child.url,
-        // No pushedHash: we did not write this content, so it counts as
-        // pending until the user sends it back. That is honest — the local
-        // copy and Jira agree now, but nothing here proves it.
-        pushedAt: undefined
-      }
-    };
-  });
+/**
+ * A story on its own.
+ *
+ * It is placed under its real parent epic where it has one, so that editing it
+ * keeps its context and a push updates the right things. A story with no parent
+ * goes under a container: a local grouping that is never created in Jira,
+ * because somebody who fetched one story did not ask for a new epic.
+ */
+async function storyBacklog(
+  atlassian: AtlassianPort,
+  issue: IssueDetail,
+  target: { projectKey: string; epicIssueType: string; storyIssueType: string },
+  opts: FromJiraOptions
+): Promise<FromJiraResult> {
+  let parent: IssueDetail | undefined;
+  if (issue.parentKey) {
+    opts.progress?.report(`Fetching parent ${issue.parentKey}…`);
+    parent = await atlassian.getIssue(issue.parentKey).catch(() => undefined);
+  }
 
-  const epic: EpicItem = {
-    ...epicProposal,
-    // Description is required by the schema; an empty one would fail to load.
-    description: epicProposal.description || issue.summary,
+  const epicRef = parent ? slugify(parent.key) : `${slugify(issue.key)}-parent`;
+  const story = storyItemFrom(issue, epicRef);
+
+  const epic: EpicItem = parent
+    ? epicItemFrom(parent, [story])
+    : {
+        ref: epicRef,
+        title: 'Standalone stories',
+        outcome: '',
+        description: `${issue.key} has no parent epic in Jira. This grouping exists only here and is never created there.`,
+        inScope: [],
+        outOfScope: [],
+        acceptanceCriteria: [],
+        dependsOn: [],
+        sizing: 'M',
+        openQuestions: [],
+        sourceEvidence: [],
+        container: true,
+        sync: {},
+        stories: [story]
+      };
+
+  return {
+    backlog: assemble(issue, [epic], target, epic),
+    slug: slugify(issue.key),
+    unstructured: !story.narrative.asA && story.acceptanceCriteria.every((ac) => !ac.then.trim())
+  };
+}
+
+function epicItemFrom(issue: IssueDetail, stories: StoryItem[]): EpicItem {
+  const parsed = parseEpicMarkdown(issue.key, issue.summary, issue.description);
+  return {
+    ...parsed,
     sync: { jiraKey: issue.key, jiraUrl: issue.url },
     stories
   };
+}
 
-  const backlog: Backlog = {
+function storyItemFrom(issue: IssueDetail, epicRef: string): StoryItem {
+  return {
+    ...parseStoryMarkdown(issue.key, issue.summary, issue.description, epicRef),
+    sync: {
+      jiraKey: issue.key,
+      jiraUrl: issue.url
+      // No pushedHash: we did not write this content, so it counts as pending
+      // until sent. The local copy and Jira agree now, but nothing proves it.
+    }
+  };
+}
+
+function isUnstructured(epic: EpicItem): boolean {
+  return !epic.outcome && epic.acceptanceCriteria.length === 0;
+}
+
+function assemble(
+  issue: IssueDetail,
+  epics: EpicItem[],
+  target: { projectKey: string; epicIssueType: string; storyIssueType: string },
+  primary: EpicItem
+): Backlog {
+  return {
     version: 1,
     source: {
       kind: 'jira',
@@ -92,18 +169,16 @@ export async function backlogFromJiraIssue(
       title: issue.summary,
       // The rubric and the story generator both read this; the epic's own
       // outcome is the closest thing an existing issue has to a summary.
-      summary: epicProposal.outcome || issue.summary,
+      summary: primary.outcome || issue.summary,
       goals: [],
       nonGoals: [],
       personas: [],
       constraints: [],
-      openQuestions: epicProposal.openQuestions,
+      openQuestions: primary.openQuestions,
       risks: []
     },
-    epics: [epic]
+    epics
   };
-
-  return { backlog, slug: slugify(issue.key), unstructured };
 }
 
 /** Marks everything as already matching Jira, for a backlog just read from it. */

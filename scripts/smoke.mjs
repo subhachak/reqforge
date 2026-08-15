@@ -28,6 +28,8 @@ export { DEFAULT_RUBRIC } from '${path.resolve('src/core/rubric/types.ts')}';
 export { RULE_IDS } from '${path.resolve('src/core/rubric/rules.ts')}';
 export { qualityLabels, qualityNote, staleQualityLabels, qualityLabelVocabulary } from '${path.resolve('src/core/rubric/labels.ts')}';
 export { parseEpicMarkdown, parseStoryMarkdown } from '${path.resolve('src/core/pipeline/parseIssue.ts')}';
+export { backlogFromJiraIssue, markAsSynced } from '${path.resolve('src/core/pipeline/fromJira.ts')}';
+export { planPush } from '${path.resolve('src/core/pipeline/push.ts')}';
 export { storyToMarkdown } from '${path.resolve('src/core/model.ts')}';
 export { STORY_CRITERIA, EPIC_CRITERIA } from '${path.resolve('src/core/rubric/criteria.ts')}';
 `
@@ -579,6 +581,91 @@ check('INVEST is complete and correctly named',
   const q = m.evaluateBacklog(empty, m.DEFAULT_RUBRIC).items.find((i) => i.ref === goodStory.ref);
   check('a story with no narrative is blocked by the rubric instead',
     q.blockedBy.some((b) => b.ruleId === 'has-narrative'), JSON.stringify(q.blockedBy));
+}
+
+/* ------------------------------------------------ pulling issues out of Jira */
+
+// A fake tenant, so the import path is exercised without a network or a token.
+const fakeJira = (issues) => ({
+  kind: 'rest',
+  capabilities: () => new Set(['jira.read', 'jira.create', 'jira.update', 'jira.search', 'jira.children']),
+  async verifyConnection() { return { ok: true, detail: '' }; },
+  async getConfluencePage() { throw new Error('not used'); },
+  async listProjects() { return []; },
+  async listIssueTypes() { return []; },
+  async requiredFields() { return []; },
+  async createIssue() { throw new Error('not used'); },
+  async updateIssue() {},
+  async getIssue(key) {
+    const i = issues.find((x) => x.key === key);
+    if (!i) throw new Error(`no such issue ${key}`);
+    return i;
+  },
+  async searchIssues() { return []; },
+  async searchIssueDetails(jql) {
+    const parent = jql.match(/parent = "([^"]+)"/)?.[1];
+    return issues.filter((i) => i.parentKey === parent);
+  }
+});
+
+const TARGET = { projectKey: 'KAN', epicIssueType: 'Epic', storyIssueType: 'Story' };
+
+const jiraEpic = {
+  id: '1', key: 'KAN-10', url: 'u/KAN-10', issueType: 'Epic', status: 'To Do', labels: [],
+  summary: 'Saved cards at checkout', description: m.epicToMarkdown(goodEpic)
+};
+const jiraStory = {
+  id: '2', key: 'KAN-11', url: 'u/KAN-11', issueType: 'Story', status: 'To Do', labels: [],
+  summary: 'Show saved cards', description: m.storyToMarkdown(goodStory), parentKey: 'KAN-10'
+};
+const orphanStory = {
+  id: '3', key: 'KAN-12', url: 'u/KAN-12', issueType: 'Story', status: 'To Do', labels: [],
+  summary: 'A standalone story', description: m.storyToMarkdown(goodStory)
+};
+
+{
+  const api = fakeJira([jiraEpic, jiraStory, orphanStory]);
+
+  const asEpic = await m.backlogFromJiraIssue(api, 'KAN-10', TARGET);
+  check('import epic: one epic', asEpic.backlog.epics.length === 1);
+  check('import epic: its children come with it', asEpic.backlog.epics[0].stories.length === 1);
+  check('import epic: the epic keeps its key', asEpic.backlog.epics[0].sync.jiraKey === 'KAN-10');
+  check('import epic: fields were parsed back', asEpic.backlog.epics[0].outcome === goodEpic.outcome);
+
+  // The regression: fetching a story used to parse it as an epic, producing an
+  // epic with no outcome and a file that then refused to load.
+  const asStory = await m.backlogFromJiraIssue(api, 'KAN-11', TARGET);
+  check('import story: the story is a story, not an epic',
+    asStory.backlog.epics[0].stories.length === 1 && asStory.backlog.epics[0].stories[0].sync.jiraKey === 'KAN-11');
+  check('import story: it sits under its real parent', asStory.backlog.epics[0].sync.jiraKey === 'KAN-10');
+  check('import story: the parent is not a container', asStory.backlog.epics[0].container !== true);
+  check('import story: the narrative survived', asStory.backlog.epics[0].stories[0].narrative.asA === goodStory.narrative.asA);
+  check('import story: the file it produces loads',
+    m.deserializeBacklog(m.serializeBacklog(asStory.backlog)).epics.length === 1);
+
+  const orphan = await m.backlogFromJiraIssue(api, 'KAN-12', TARGET);
+  check('orphan story: goes under a container', orphan.backlog.epics[0].container === true);
+  check('orphan story: the container has no Jira key', !orphan.backlog.epics[0].sync.jiraKey);
+  check('orphan story: the file loads', m.deserializeBacklog(m.serializeBacklog(orphan.backlog)).epics[0].container === true);
+
+  // A container must never be planned into Jira.
+  m.markAsSynced(orphan.backlog);
+  const plan = await m.planPush(api, orphan.backlog);
+  check('container: is never planned as an epic', plan.actions.every((a) => a.level !== 'epic'), JSON.stringify(plan.actions));
+  check('container: its story is still planned', plan.actions.some((a) => a.level === 'story'));
+
+  // And the rubric must not judge it as an epic.
+  const q = m.evaluateBacklog(orphan.backlog, m.DEFAULT_RUBRIC);
+  check('container: is not judged by the rubric', q.items.every((i) => i.level !== 'epic'), JSON.stringify(q.items.map(i=>i.level)));
+
+  // An epic with no outcome must load and be reported, not rejected.
+  const bare = { ...jiraEpic, key: 'KAN-13', description: 'Just some prose from a human.' };
+  const bareImport = await m.backlogFromJiraIssue(fakeJira([bare]), 'KAN-13', TARGET);
+  check('hand-written epic: loads despite having no outcome',
+    m.deserializeBacklog(m.serializeBacklog(bareImport.backlog)).epics[0].outcome === '');
+  check('hand-written epic: the rubric blocks on the missing outcome',
+    m.evaluateBacklog(bareImport.backlog, m.DEFAULT_RUBRIC).items[0].blockedBy.some((f) => f.ruleId === 'has-outcome'));
+  check('hand-written epic: reported as unstructured', bareImport.unstructured === true);
 }
 
 /* -------------------------------- a slice of a backlog is not a broken one */

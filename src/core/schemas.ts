@@ -18,8 +18,14 @@ export const EpicProposalSchema = z.object({
     .min(1)
     .regex(/^[a-z0-9][a-z0-9-]*$/, 'ref must be lowercase kebab-case'),
   title: z.string().min(1).max(255),
-  outcome: z.string().min(1).describe('The user- or business-facing outcome this epic delivers.'),
-  description: z.string().min(1),
+  /**
+   * Not required to be non-empty, for the same reason as a story's narrative:
+   * an epic read back from a hand-written Jira issue has neither, and refusing
+   * to load the file is the wrong response. `has-outcome` is a rubric blocker,
+   * which reports it somewhere the user can act on.
+   */
+  outcome: z.string().default(''),
+  description: z.string().default(''),
   inScope: z.array(z.string()).default([]),
   outOfScope: z.array(z.string()).default([]),
   acceptanceCriteria: z.array(AcceptanceCriterionSchema).default([]),
@@ -92,7 +98,13 @@ export const StoryItemSchema = StoryProposalSchema.extend({ sync: SyncStateSchem
 
 export const EpicItemSchema = EpicProposalSchema.extend({
   sync: SyncStateSchema,
-  stories: z.array(StoryItemSchema).default([])
+  stories: z.array(StoryItemSchema).default([]),
+  /**
+   * A local grouping that does not exist in Jira and must never be created
+   * there. Used when a standalone story is pulled in and has no parent epic to
+   * sit under. Skipped by the planner and by the rubric.
+   */
+  container: z.boolean().default(false)
 });
 
 export const BacklogSchema = z.object({

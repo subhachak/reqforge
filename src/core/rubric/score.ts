@@ -113,6 +113,26 @@ export function evaluateBacklog(
 
   for (const epic of backlog.epics) {
     const fingerprint = epicFingerprint(epic);
+    // A container is not work, so judging it as an epic would report problems
+    // about something that does not exist.
+    if (epic.container) {
+      for (const story of epic.stories) {
+        const p = storyFingerprint(story);
+        items.push(
+          buildItemQuality({
+            level: 'story',
+            ref: story.ref,
+            title: story.title,
+            fingerprint: p,
+            findings: checkStory(story, ctx, config),
+            criteria: cached.get(cacheKey('story', story.ref, p)) ?? [],
+            config,
+            override: overrides.get(overrideKey('story', story.ref))
+          })
+        );
+      }
+      continue;
+    }
     items.push(
       buildItemQuality({
         level: 'epic',

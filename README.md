@@ -343,6 +343,11 @@ reported as information. Likewise traceability: an imported epic has no source d
 demanding evidence of one is noise. `RuleContext.partial` carries the distinction, set from
 `source.kind`.
 
+**A story key gives you a story.** It is placed under its real parent epic where it has one, so
+editing keeps its context and a push updates the right things. A story with no parent goes under a
+*container* — a local grouping that is never created in Jira, never planned into a push, and never
+judged by the rubric, because somebody who fetched one story did not ask for a new epic.
+
 Two details worth knowing:
 
 - Children are read with one `parent = KEY` search returning full detail, not a search followed by

@@ -12,6 +12,8 @@ export interface SyncState {
 export interface EpicItem extends EpicProposal {
   sync: SyncState;
   stories: StoryItem[];
+  /** Local grouping only — never created in Jira. See EpicItemSchema. */
+  container?: boolean;
 }
 
 export interface StoryItem extends StoryProposal {

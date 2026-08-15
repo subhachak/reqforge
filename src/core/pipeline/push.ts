@@ -57,8 +57,13 @@ export async function planPush(
 
   for (const epic of backlog.epics) {
     if (only && !only.has(epic.ref)) continue;
-    const resolved = await resolveKey(atlassian, backlog, epic.sync.jiraKey, epic.ref, projectKey);
-    actions.push(buildAction('epic', epic.ref, epic.title, resolved, epic.sync.pushedHash, epicFingerprint(epic)));
+
+    // A container is a local grouping for standalone stories. Planning it would
+    // create an epic in Jira that nobody asked for.
+    if (!epic.container) {
+      const resolved = await resolveKey(atlassian, backlog, epic.sync.jiraKey, epic.ref, projectKey);
+      actions.push(buildAction('epic', epic.ref, epic.title, resolved, epic.sync.pushedHash, epicFingerprint(epic)));
+    }
 
     for (const story of epic.stories) {
       const storyKey = await resolveKey(atlassian, backlog, story.sync.jiraKey, story.ref, projectKey);
@@ -156,7 +161,9 @@ export async function executePush(
     for (const story of epic.stories) {
       const storyAction = byRef.get(`story:${story.ref}`);
       if (!storyAction) continue;
-      if (!parentKey && storyAction.verb === 'create') {
+      // A story under a container is standalone by definition and is created
+      // unparented; only a real epic missing its key is an error.
+      if (!parentKey && storyAction.verb === 'create' && !epic.container) {
         result.failures.push({
           ref: story.ref,
           error: `parent epic ${epic.ref} has no Jira key, so the story cannot be linked`
