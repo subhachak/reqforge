@@ -164,6 +164,33 @@ Assessments are cached by content fingerprint in `.reqforge/<slug>.quality.json`
 item invalidates its score rather than showing a stale one. The model pass is batched — Copilot
 offers no prompt caching, so one call per story would burn quota for nothing.
 
+### What a failure actually stops
+
+| `enforcement` | Effect on a failing item |
+|---|---|
+| `block` *(default)* | The send is refused. The message says how many are blocked, how many scored low, and how many were never reviewed — those need different fixes. |
+| `warn` | A modal names the failing items; "Send Anyway" proceeds. |
+
+Only items whose epic is **ticked for inclusion** are gated, so unticking an epic lets the rest go
+through. And with `requireReview: true` (the default) an item that has never been through a model
+review counts as failing — nothing ships unreviewed. Set it to `false` to treat the deterministic
+rules as the gate and the model pass as advisory.
+
+### Three ways to clear a failure
+
+1. **Edit it.** Every field is editable in place, and the deterministic rules re-run on each
+   keystroke, so blockers clear as you type. The model score goes stale on edit — by design — and
+   the item reads "not reviewed" until you re-review it.
+2. **Fix with AI.** Turns the findings into a refine instruction and runs the normal diff review.
+3. **Dismiss or accept.** A rule that is right ninety times is wrong the ninety-first, and a
+   criterion can misjudge an item whose context lives outside the text. `dismiss` waives one
+   finding, `Accept anyway` passes an item scoring below the threshold. Both demand a written
+   reason, both stay visible on the item afterwards rather than disappearing into a pass, and both
+   survive editing so nobody has to re-justify after fixing a typo.
+
+**Acceptance cannot buy off a blocker.** An epic with no acceptance criteria stays failed however
+many people accept it — otherwise the gate means nothing. Covered by a test.
+
 ### Working through the failures
 
 The rail filters by readiness — All / Needs work / Not reviewed / Ready, with live counts — and

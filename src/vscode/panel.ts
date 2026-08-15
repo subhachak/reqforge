@@ -16,13 +16,15 @@ import {
   cacheKey,
   evaluateBacklog,
   fixInstruction,
-  loadAssessments,
+  loadQuality,
   loadRubric,
   pruneAssessments,
   sampleRubricYaml,
-  saveAssessments,
+  saveQuality,
+  overrideKey,
   type BacklogQuality,
   type CriterionResult,
+  type Override,
   type RubricConfig
 } from '../core/rubric/index';
 import { epicFingerprint, storyFingerprint } from '../core/model';
@@ -83,6 +85,8 @@ export class BacklogPanel {
   private rubricProblem: string | undefined;
   /** Model assessments, keyed by level:ref:fingerprint so edits invalidate them. */
   private assessments = new Map<string, CriterionResult[]>();
+  /** Reviewer decisions, keyed by level:ref so they survive editing. */
+  private overrides = new Map<string, Override>();
 
   /** Connection test results, only refreshed on an explicit test. */
   private probes = {
@@ -203,6 +207,7 @@ export class BacklogPanel {
       rubric: {
         threshold: this.rubric.threshold,
         enforcement: this.rubric.enforcement,
+        requireReview: this.rubric.requireReview,
         source: this.rubricSource,
         problem: this.rubricProblem
       }
@@ -214,7 +219,7 @@ export class BacklogPanel {
 
   /** Deterministic rules cost nothing, so quality is recomputed on every render. */
   private quality(): BacklogQuality | undefined {
-    return this.backlog ? evaluateBacklog(this.backlog, this.rubric, this.assessments) : undefined;
+    return this.backlog ? evaluateBacklog(this.backlog, this.rubric, this.assessments, this.overrides) : undefined;
   }
 
   private liveKeys(): Set<string> {
@@ -226,10 +231,74 @@ export class BacklogPanel {
     return keys;
   }
 
-  private async saveAssessments() {
+  private async saveQuality() {
     if (!this.slug) return;
     this.assessments = pruneAssessments(this.assessments, this.liveKeys());
-    await saveAssessments(new WorkspaceFs(), dataFolder(), this.slug, this.assessments);
+    await saveQuality(new WorkspaceFs(), dataFolder(), this.slug, {
+      assessments: this.assessments,
+      overrides: this.overrides
+    });
+  }
+
+  private mutateOverride(level: 'epic' | 'story', ref: string, fn: (o: Override) => void) {
+    const key = overrideKey(level, ref);
+    const existing = this.overrides.get(key) ?? { level, ref, waivedRules: [], reasons: {} };
+    fn(existing);
+    // Drop empty overrides rather than leaving hollow records behind.
+    if (existing.waivedRules.length === 0 && !existing.acceptedBelowThreshold) this.overrides.delete(key);
+    else this.overrides.set(key, existing);
+  }
+
+  /** Records that a reviewer judged a rule not to apply to this item. */
+  private async waiveFinding(level: 'epic' | 'story', ref: string, ruleId: string) {
+    const reason = await vscode.window.showInputBox({
+      title: 'Dismiss this check',
+      prompt: 'Why does this check not apply here? Recorded against the item.',
+      placeHolder: 'e.g. traceability is covered by the linked compliance page',
+      ignoreFocusOut: true,
+      validateInput: (v) => (v.trim().length >= 4 ? undefined : 'Give a reason — an unexplained exception is worse than none')
+    });
+    if (reason === undefined) return;
+    this.mutateOverride(level, ref, (o) => {
+      if (!o.waivedRules.includes(ruleId)) o.waivedRules.push(ruleId);
+      o.reasons[ruleId] = reason.trim();
+    });
+    await this.saveQuality();
+    await this.send();
+  }
+
+  private async unwaiveFinding(level: 'epic' | 'story', ref: string, ruleId: string) {
+    this.mutateOverride(level, ref, (o) => {
+      o.waivedRules = o.waivedRules.filter((r) => r !== ruleId);
+      delete o.reasons[ruleId];
+    });
+    await this.saveQuality();
+    await this.send();
+  }
+
+  /** Accepts an item that scores below the threshold, with an attributed reason. */
+  private async acceptBelowThreshold(level: 'epic' | 'story', ref: string) {
+    const reason = await vscode.window.showInputBox({
+      title: 'Accept below the quality threshold',
+      prompt: 'Why is this good enough to send despite the score? Recorded against the item.',
+      placeHolder: 'e.g. spike story, detail will follow after the technical investigation',
+      ignoreFocusOut: true,
+      validateInput: (v) => (v.trim().length >= 4 ? undefined : 'Give a reason — this is the record of the exception')
+    });
+    if (reason === undefined) return;
+    this.mutateOverride(level, ref, (o) => {
+      o.acceptedBelowThreshold = { reason: reason.trim(), at: new Date().toISOString() };
+    });
+    await this.saveQuality();
+    await this.send();
+  }
+
+  private async revokeAcceptance(level: 'epic' | 'story', ref: string) {
+    this.mutateOverride(level, ref, (o) => {
+      delete o.acceptedBelowThreshold;
+    });
+    await this.saveQuality();
+    await this.send();
   }
 
   private async deepReview(only?: string[]) {
@@ -251,7 +320,7 @@ export class BacklogPanel {
           }
         }
       });
-      await this.saveAssessments();
+      await this.saveQuality();
 
       const q = this.quality()!;
       this.notice = {
@@ -348,7 +417,9 @@ export class BacklogPanel {
     this.pendingRefine = undefined;
     this.clearHistory();
     await this.reloadRubric();
-    this.assessments = await loadAssessments(new WorkspaceFs(), dataFolder(), slug);
+    const record = await loadQuality(new WorkspaceFs(), dataFolder(), slug);
+    this.assessments = record.assessments;
+    this.overrides = record.overrides;
     await this.send();
   }
 
@@ -470,6 +541,22 @@ export class BacklogPanel {
 
       case 'createRubricFile':
         await this.createRubricFile();
+        return;
+
+      case 'waiveFinding':
+        await this.waiveFinding(msg.level, msg.ref, msg.ruleId);
+        return;
+
+      case 'unwaiveFinding':
+        await this.unwaiveFinding(msg.level, msg.ref, msg.ruleId);
+        return;
+
+      case 'acceptBelowThreshold':
+        await this.acceptBelowThreshold(msg.level, msg.ref);
+        return;
+
+      case 'revokeAcceptance':
+        await this.revokeAcceptance(msg.level, msg.ref);
         return;
 
       case 'dismissNotice':
@@ -771,10 +858,21 @@ export class BacklogPanel {
       const more = failing.length > 6 ? `\n…and ${failing.length - 6} more.` : '';
 
       if (this.rubric.enforcement === 'block') {
+        const unreviewed = failing.filter((i) => i.deterministicOnly).length;
+        const blocked = failing.filter((i) => i.blockedBy.length > 0).length;
+        const lowScoring = failing.length - unreviewed - blocked;
+        const reasons = [
+          blocked ? `${blocked} with blocking problems` : '',
+          lowScoring ? `${lowScoring} below ${this.rubric.threshold}` : '',
+          unreviewed ? `${unreviewed} not reviewed yet` : ''
+        ].filter(Boolean);
+
         this.notice = {
           kind: 'error',
-          message: `${failing.length} item(s) have not met the quality threshold of ${this.rubric.threshold}.`,
-          hint: 'Run a quality review, use Fix, or relax the rubric in .reqforge/rubric.yaml.'
+          message: `${failing.length} item(s) cannot be sent: ${reasons.join(', ')}.`,
+          hint: unreviewed
+            ? 'Run "Review quality", fix or dismiss the findings, or set requireReview: false in .reqforge/rubric.yaml.'
+            : 'Fix the findings, dismiss the ones that do not apply, or accept an item below the threshold with a reason.'
         };
         this.plan = undefined;
         await this.send();

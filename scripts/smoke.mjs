@@ -22,7 +22,7 @@ export { markdownToAdf, adfToMarkdown } from '${path.resolve('src/adapters/atlas
 export { extractPageId } from '${path.resolve('src/adapters/atlassian/rest.ts')}';
 export { epicToMarkdown, stampLabel, epicFingerprint } from '${path.resolve('src/core/model.ts')}';
 export { serializeBacklog, deserializeBacklog } from '${path.resolve('src/core/store.ts')}';
-export { evaluateBacklog, scoreCriteria, fixInstruction, cacheKey } from '${path.resolve('src/core/rubric/score.ts')}';
+export { evaluateBacklog, scoreCriteria, fixInstruction, cacheKey, overrideKey } from '${path.resolve('src/core/rubric/score.ts')}';
 export { DEFAULT_RUBRIC } from '${path.resolve('src/core/rubric/types.ts')}';
 export { RULE_IDS } from '${path.resolve('src/core/rubric/rules.ts')}';
 export { STORY_CRITERIA, EPIC_CRITERIA } from '${path.resolve('src/core/rubric/criteria.ts')}';
@@ -390,6 +390,47 @@ check('cache: editing an item invalidates its assessment', staleItem.determinist
 check('fix instruction names the actual problems',
   m.fixInstruction(blockedItem).includes('No acceptance criteria'),
   m.fixInstruction(blockedItem));
+
+/* --------------------------------------------------- overrides and waivers */
+
+const noAc = { ...goodEpic, acceptanceCriteria: [] };
+const noAcBacklog = backlogOf([noAc]);
+const noAcPrint = m.epicFingerprint(noAc);
+const perfectEpic = m.EPIC_CRITERIA.map((c) => ({ id: c.id, rating: 3, justification: 'x', suggestion: '' }));
+const poorEpic = m.EPIC_CRITERIA.map((c) => ({ id: c.id, rating: 1, justification: 'x', suggestion: '' }));
+
+// Waiving a blocker clears it from the verdict but keeps it visible.
+const waiver = new Map([
+  [m.overrideKey('epic', 'good'), { level: 'epic', ref: 'good', waivedRules: ['has-acceptance-criteria'], reasons: { 'has-acceptance-criteria': 'covered by the linked test plan' } }]
+]);
+const waivedItem = m.evaluateBacklog(noAcBacklog, m.DEFAULT_RUBRIC, new Map([[m.cacheKey('epic', 'good', noAcPrint), perfectEpic]]), waiver).items.find((i) => i.ref === 'good');
+check('waiver: a waived blocker no longer blocks', waivedItem.blockedBy.length === 0 && waivedItem.passed === true);
+check('waiver: the waived finding stays visible with its reason',
+  waivedItem.waived.length === 1 && waivedItem.waived[0].reason.includes('test plan'));
+
+// Without the waiver the same item must still fail.
+const unwaivedItem = m.evaluateBacklog(noAcBacklog, m.DEFAULT_RUBRIC, new Map([[m.cacheKey('epic', 'good', noAcPrint), perfectEpic]])).items.find((i) => i.ref === 'good');
+check('waiver: removing it restores the blocker', unwaivedItem.blockedBy.length === 1 && unwaivedItem.passed === false);
+
+// Accepting below threshold passes the item but records why.
+const accept = new Map([
+  [m.overrideKey('epic', 'good'), { level: 'epic', ref: 'good', waivedRules: [], reasons: {}, acceptedBelowThreshold: { reason: 'spike, detail follows', at: 'now' } }]
+]);
+const acceptedItem = m.evaluateBacklog(backlogOf([goodEpic]), m.DEFAULT_RUBRIC, new Map([[m.cacheKey('epic', 'good', m.epicFingerprint(goodEpic)), poorEpic]]), accept).items.find((i) => i.ref === 'good');
+check('accept: a low score passes once accepted', acceptedItem.score === 33 && acceptedItem.passed === true);
+check('accept: the reason is retained', acceptedItem.acceptedBelowThreshold.reason.includes('spike'));
+
+// Acceptance must NOT buy off a blocker — that would make the gate meaningless.
+const acceptWithBlocker = m.evaluateBacklog(noAcBacklog, m.DEFAULT_RUBRIC, new Map([[m.cacheKey('epic', 'good', noAcPrint), perfectEpic]]), accept).items.find((i) => i.ref === 'good');
+check('accept: cannot override a blocker', acceptWithBlocker.blockedBy.length === 1 && acceptWithBlocker.passed === false);
+
+// requireReview controls whether unreviewed items block.
+const strict = m.evaluateBacklog(backlogOf([goodEpic]), m.DEFAULT_RUBRIC).items.find((i) => i.ref === 'good');
+const relaxed = m.evaluateBacklog(backlogOf([goodEpic]), { ...m.DEFAULT_RUBRIC, requireReview: false }).items.find((i) => i.ref === 'good');
+check('requireReview true: an unreviewed item fails', strict.passed === false && strict.deterministicOnly === true);
+check('requireReview false: an unreviewed clean item passes', relaxed.passed === true && relaxed.deterministicOnly === true);
+check('requireReview false: an unreviewed item with a blocker still fails',
+  m.evaluateBacklog(noAcBacklog, { ...m.DEFAULT_RUBRIC, requireReview: false }).items.find((i) => i.ref === 'good').passed === false);
 
 check('rubric exposes every rule id for config', m.RULE_IDS.length >= 18 && m.RULE_IDS.includes('generic-persona'));
 check('INVEST is complete and correctly named',

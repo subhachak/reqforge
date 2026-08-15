@@ -1,5 +1,5 @@
 import type { FileSystemLike } from '../store';
-import type { CriterionResult } from './types';
+import type { CriterionResult, Override } from './types';
 
 /**
  * Assessments live in a sidecar file, not in the backlog YAML.
@@ -14,36 +14,51 @@ import type { CriterionResult } from './types';
 interface CacheFile {
   version: 1;
   entries: Record<string, CriterionResult[]>;
+  /**
+   * Reviewer decisions, keyed by `level:ref` without a fingerprint so they
+   * survive editing. Stored beside the assessments because they are the same
+   * kind of thing: a record of a judgement, not part of the backlog itself.
+   */
+  overrides?: Record<string, Override>;
 }
 
 export function qualityPath(folder: string, slug: string): string {
   return `${folder}/${slug}.quality.json`;
 }
 
-export async function loadAssessments(
-  fs: FileSystemLike,
-  folder: string,
-  slug: string
-): Promise<Map<string, CriterionResult[]>> {
+export interface QualityRecord {
+  assessments: Map<string, CriterionResult[]>;
+  overrides: Map<string, Override>;
+}
+
+export async function loadQuality(fs: FileSystemLike, folder: string, slug: string): Promise<QualityRecord> {
+  const empty: QualityRecord = { assessments: new Map(), overrides: new Map() };
   const text = await fs.read(qualityPath(folder, slug));
-  if (!text) return new Map();
+  if (!text) return empty;
   try {
     const parsed = JSON.parse(text) as CacheFile;
-    if (parsed?.version !== 1 || typeof parsed.entries !== 'object') return new Map();
-    return new Map(Object.entries(parsed.entries));
+    if (parsed?.version !== 1 || typeof parsed.entries !== 'object') return empty;
+    return {
+      assessments: new Map(Object.entries(parsed.entries)),
+      overrides: new Map(Object.entries(parsed.overrides ?? {}))
+    };
   } catch {
     // A corrupt cache is not worth failing over — reassessing costs a model call.
-    return new Map();
+    return empty;
   }
 }
 
-export async function saveAssessments(
+export async function saveQuality(
   fs: FileSystemLike,
   folder: string,
   slug: string,
-  entries: Map<string, CriterionResult[]>
+  record: QualityRecord
 ): Promise<void> {
-  const file: CacheFile = { version: 1, entries: Object.fromEntries(entries) };
+  const file: CacheFile = {
+    version: 1,
+    entries: Object.fromEntries(record.assessments),
+    overrides: Object.fromEntries(record.overrides)
+  };
   await fs.write(qualityPath(folder, slug), JSON.stringify(file, null, 2));
 }
 

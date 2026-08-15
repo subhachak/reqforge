@@ -8,6 +8,7 @@ import {
   type CriterionResult,
   type ItemQuality,
   type Level,
+  type Override,
   type RubricConfig,
   type RuleFinding
 } from './types';
@@ -47,12 +48,26 @@ export function buildItemQuality(args: {
   findings: RuleFinding[];
   criteria: CriterionResult[];
   config: RubricConfig;
+  override?: Override;
 }): ItemQuality {
-  const { level, ref, title, fingerprint, findings, criteria, config } = args;
-  const blockedBy = findings.filter((f) => f.severity === 'blocker');
-  const warnings = findings.filter((f) => f.severity !== 'blocker');
+  const { level, ref, title, fingerprint, findings, criteria, config, override } = args;
+
+  // Waived findings are removed from the verdict but kept on the item, so an
+  // exception is visible to the next reader rather than looking like a pass.
+  const waivedIds = new Set(override?.waivedRules ?? []);
+  const waived = findings
+    .filter((f) => waivedIds.has(f.ruleId))
+    .map((f) => ({ ...f, reason: override?.reasons[f.ruleId] ?? '' }));
+  const active = findings.filter((f) => !waivedIds.has(f.ruleId));
+
+  const blockedBy = active.filter((f) => f.severity === 'blocker');
+  const warnings = active.filter((f) => f.severity !== 'blocker');
   const deterministicOnly = criteria.length === 0;
   const score = deterministicOnly ? 0 : scoreCriteria(level, criteria, config);
+
+  const accepted = override?.acceptedBelowThreshold;
+  const reviewSatisfied = !deterministicOnly || !config.requireReview;
+  const scoreSatisfied = deterministicOnly ? true : score >= config.threshold;
 
   return {
     level,
@@ -60,16 +75,18 @@ export function buildItemQuality(args: {
     title,
     score,
     threshold: config.threshold,
-    // A blocker fails the item outright. Otherwise the score decides — but an
-    // item nobody has assessed yet is not "passed", it is simply unknown, and
-    // the UI distinguishes those with deterministicOnly.
-    passed: blockedBy.length === 0 && !deterministicOnly && score >= config.threshold,
+    // A blocker fails the item outright — no score can buy it off. Beyond that,
+    // an item passes when it is reviewed (if reviews are required), scores at
+    // or above the threshold, or a reviewer has explicitly accepted it below.
+    passed: blockedBy.length === 0 && (Boolean(accepted) || (reviewSatisfied && scoreSatisfied)),
     blockedBy,
     warnings,
     criteria,
     assessedHash: fingerprint,
     assessedAt: new Date().toISOString(),
-    deterministicOnly
+    deterministicOnly,
+    waived,
+    acceptedBelowThreshold: accepted
   };
 }
 
@@ -82,7 +99,8 @@ export function buildItemQuality(args: {
 export function evaluateBacklog(
   backlog: Backlog,
   config: RubricConfig,
-  cached: Map<string, CriterionResult[]> = new Map()
+  cached: Map<string, CriterionResult[]> = new Map(),
+  overrides: Map<string, Override> = new Map()
 ): BacklogQuality {
   const ctx: RuleContext = {
     allEpicRefs: new Set(backlog.epics.map((e) => e.ref)),
@@ -101,7 +119,8 @@ export function evaluateBacklog(
         fingerprint,
         findings: checkEpic(epic, { ...ctx, siblingTitles: siblingsOf(backlog, epic) }, config),
         criteria: cached.get(cacheKey('epic', epic.ref, fingerprint)) ?? [],
-        config
+        config,
+        override: overrides.get(overrideKey('epic', epic.ref))
       })
     );
 
@@ -115,7 +134,8 @@ export function evaluateBacklog(
           fingerprint: storyPrint,
           findings: checkStory(story, ctx, config),
           criteria: cached.get(cacheKey('story', story.ref, storyPrint)) ?? [],
-          config
+          config,
+          override: overrides.get(overrideKey('story', story.ref))
         })
       );
     }
@@ -135,6 +155,16 @@ export function evaluateBacklog(
 /** Keyed by fingerprint so an edit invalidates the assessment automatically. */
 export function cacheKey(level: Level, ref: string, fingerprint: string): string {
   return `${level}:${ref}:${fingerprint}`;
+}
+
+/**
+ * Overrides are keyed without the fingerprint, so a reviewer's decision
+ * survives ordinary editing. Re-waiving the same rule after every typo would
+ * make the mechanism unusable; the waiver stays visible on the item so it can
+ * be revisited deliberately.
+ */
+export function overrideKey(level: Level, ref: string): string {
+  return `${level}:${ref}`;
 }
 
 function siblingsOf(backlog: Backlog, epic: EpicItem): string[] {

@@ -44,7 +44,7 @@ const EMPTY: PanelState = {
   redoLabel: undefined,
   quality: undefined,
   criteria: [],
-  rubric: { threshold: 70, enforcement: 'block', source: 'default' }
+  rubric: { threshold: 70, enforcement: 'block', requireReview: true, source: 'default' }
 };
 
 /* ------------------------------------------------------------- primitives */
@@ -221,13 +221,21 @@ function QualityPanel({
   criteria,
   busy,
   onFix,
-  onReview
+  onReview,
+  onWaive,
+  onUnwaive,
+  onAccept,
+  onRevoke
 }: {
   quality: ItemQuality | undefined;
   criteria: CriterionDef[];
   busy: boolean;
   onFix: () => void;
   onReview: () => void;
+  onWaive: (ruleId: string) => void;
+  onUnwaive: (ruleId: string) => void;
+  onAccept: () => void;
+  onRevoke: () => void;
 }) {
   if (!quality) return null;
   const hasFindings = quality.blockedBy.length > 0 || quality.warnings.length > 0;
@@ -248,23 +256,55 @@ function QualityPanel({
             Fix with AI
           </button>
         )}
+        {!quality.passed && quality.blockedBy.length === 0 && !quality.acceptedBelowThreshold && (
+          <button
+            disabled={busy}
+            onClick={onAccept}
+            title="Send this anyway, recording why"
+          >
+            Accept anyway
+          </button>
+        )}
         <button disabled={busy} onClick={onReview}>
           {quality.deterministicOnly ? 'Review quality' : 'Re-review'}
         </button>
       </div>
 
-      {quality.blockedBy.map((f) => (
-        <div className="finding blocker" key={f.ruleId}>
-          <span className="badge create" style={{ background: 'var(--red)' }}>
-            blocker
+      {quality.acceptedBelowThreshold && (
+        <div className="finding accepted">
+          <span className="badge skip">accepted</span>
+          <span>
+            Sent despite scoring {quality.score} — “{quality.acceptedBelowThreshold.reason}”
           </span>
-          <span>{f.message}</span>
+          <button className="ghost" onClick={onRevoke} title="Withdraw this acceptance">
+            undo
+          </button>
+        </div>
+      )}
+
+      {[...quality.blockedBy, ...quality.warnings].map((f) => (
+        <div className={`finding ${f.severity}`} key={f.ruleId}>
+          <span className={`badge ${f.severity === 'blocker' ? 'create' : 'skip'}`} style={f.severity === 'blocker' ? { background: 'var(--red)' } : undefined}>
+            {f.severity}
+          </span>
+          <span style={{ flex: 1 }}>{f.message}</span>
+          {/* The manual path: a rule that does not apply here can be dismissed
+              with a reason, rather than being disabled for the whole project. */}
+          <button className="ghost" title="This check does not apply here" onClick={() => onWaive(f.ruleId)}>
+            dismiss
+          </button>
         </div>
       ))}
-      {quality.warnings.map((f) => (
-        <div className={`finding ${f.severity}`} key={f.ruleId}>
-          <span className="badge skip">{f.severity}</span>
-          <span>{f.message}</span>
+
+      {quality.waived.map((f) => (
+        <div className="finding waived" key={`waived-${f.ruleId}`}>
+          <span className="badge skip">dismissed</span>
+          <span style={{ flex: 1 }}>
+            {f.message} {f.reason && <em>— “{f.reason}”</em>}
+          </span>
+          <button className="ghost" title="Reinstate this check" onClick={() => onUnwaive(f.ruleId)}>
+            restore
+          </button>
         </div>
       ))}
 
@@ -448,6 +488,10 @@ function StoryCard(props: {
             busy={props.busy}
             onFix={props.onFix}
             onReview={props.onReview}
+            onWaive={(ruleId) => post({ type: 'waiveFinding', level: 'story', ref: s.ref, ruleId })}
+            onUnwaive={(ruleId) => post({ type: 'unwaiveFinding', level: 'story', ref: s.ref, ruleId })}
+            onAccept={() => post({ type: 'acceptBelowThreshold', level: 'story', ref: s.ref })}
+            onRevoke={() => post({ type: 'revokeAcceptance', level: 'story', ref: s.ref })}
           />
 
           <div className="refine">
@@ -601,6 +645,10 @@ function EpicDetail(props: {
         busy={props.busy}
         onFix={() => props.onFix('epic', e.ref)}
         onReview={props.onReview}
+        onWaive={(ruleId) => post({ type: 'waiveFinding', level: 'epic', ref: e.ref, ruleId })}
+        onUnwaive={(ruleId) => post({ type: 'unwaiveFinding', level: 'epic', ref: e.ref, ruleId })}
+        onAccept={() => post({ type: 'acceptBelowThreshold', level: 'epic', ref: e.ref })}
+        onRevoke={() => post({ type: 'revokeAcceptance', level: 'epic', ref: e.ref })}
       />
 
       <div className="refine">

@@ -47,6 +47,26 @@ export interface RuleFinding {
   field?: string;
 }
 
+/**
+ * A human decision that overrides the rubric for one item.
+ *
+ * Rubrics produce false positives — a rule that is right ninety times is wrong
+ * the ninety-first, and a criterion can misjudge an item whose context lives
+ * outside the text. Without a way to say "I have looked at this and it is
+ * fine", people either disable the rule globally or stop trusting the whole
+ * system. Both are worse than a recorded, attributed exception.
+ */
+export interface Override {
+  level: Level;
+  ref: string;
+  /** Rule ids the reviewer has judged not to apply here. */
+  waivedRules: string[];
+  /** Set when the reviewer accepts the item despite a score below the threshold. */
+  acceptedBelowThreshold?: { reason: string; at: string };
+  /** Reasons per waived rule, keyed by rule id. */
+  reasons: Record<string, string>;
+}
+
 export interface ItemQuality {
   level: Level;
   ref: string;
@@ -65,6 +85,10 @@ export interface ItemQuality {
   assessedAt: string;
   /** True when only deterministic rules ran — no model call has been made yet. */
   deterministicOnly: boolean;
+  /** Findings the reviewer waived, kept visible rather than hidden. */
+  waived: (RuleFinding & { reason: string })[];
+  /** Set when the item passes only because a reviewer accepted it below threshold. */
+  acceptedBelowThreshold?: { reason: string; at: string };
 }
 
 export interface BacklogQuality {
@@ -86,11 +110,19 @@ export interface RubricConfig {
   rules: Record<string, Severity | 'off'>;
   /** Whether failing items may still be pushed, with a confirmation. */
   enforcement: 'block' | 'warn';
+  /**
+   * Whether an item that has never been through a model review counts as
+   * failing. True is the strict reading — nothing ships unreviewed. False lets
+   * a team rely on the deterministic rules alone and treat the model pass as
+   * advisory, which is the cheaper way to work day to day.
+   */
+  requireReview: boolean;
 }
 
 export const DEFAULT_RUBRIC: RubricConfig = {
   threshold: 70,
   weights: {},
   rules: {},
-  enforcement: 'block'
+  enforcement: 'block',
+  requireReview: true
 };

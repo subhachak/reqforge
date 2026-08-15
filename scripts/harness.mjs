@@ -165,7 +165,7 @@ const state = {
   undoLabel: 'edit',
   redoLabel: undefined,
   criteria: CRITERIA,
-  rubric: { threshold: 70, enforcement: 'block', source: 'default' },
+  rubric: { threshold: 70, enforcement: 'block', requireReview: true, source: 'default' },
   quality: buildQuality()
 };
 

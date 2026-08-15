@@ -77,7 +77,13 @@ export interface PanelState {
   /** Criterion definitions, so the webview can show names and standards without duplicating them. */
   criteria: CriterionDef[];
   /** Where the rubric came from, and any problem loading it. */
-  rubric: { threshold: number; enforcement: 'block' | 'warn'; source: 'default' | 'file'; problem?: string };
+  rubric: {
+    threshold: number;
+    enforcement: 'block' | 'warn';
+    requireReview: boolean;
+    source: 'default' | 'file';
+    problem?: string;
+  };
 }
 
 export type HostMessage = { type: 'state'; state: PanelState } | { type: 'pushed'; result: PushResult };
@@ -120,6 +126,10 @@ export type WebviewMessage =
   | { type: 'deepReview'; only?: string[] }
   | { type: 'fixItem'; level: 'epic' | 'story'; ref: string }
   | { type: 'createRubricFile' }
+  | { type: 'waiveFinding'; level: 'epic' | 'story'; ref: string; ruleId: string }
+  | { type: 'unwaiveFinding'; level: 'epic' | 'story'; ref: string; ruleId: string }
+  | { type: 'acceptBelowThreshold'; level: 'epic' | 'story'; ref: string }
+  | { type: 'revokeAcceptance'; level: 'epic' | 'story'; ref: string }
   /* chrome */
   | { type: 'dismissNotice' }
   | { type: 'dismissPlan' }

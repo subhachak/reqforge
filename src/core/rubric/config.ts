@@ -15,6 +15,7 @@ const SeveritySchema = z.enum(['blocker', 'warn', 'info', 'off']);
 const FileSchema = z.object({
   threshold: z.number().min(0).max(100).optional(),
   enforcement: z.enum(['block', 'warn']).optional(),
+  requireReview: z.boolean().optional(),
   weights: z.record(z.string(), z.number().min(0)).optional(),
   rules: z.record(z.string(), SeveritySchema).optional()
 });
@@ -50,6 +51,7 @@ export async function loadRubric(fs: FileSystemLike, folder: string): Promise<Lo
     config: {
       threshold: parsed.data.threshold ?? DEFAULT_RUBRIC.threshold,
       enforcement: parsed.data.enforcement ?? DEFAULT_RUBRIC.enforcement,
+      requireReview: parsed.data.requireReview ?? DEFAULT_RUBRIC.requireReview,
       weights: parsed.data.weights ?? {},
       rules: (parsed.data.rules ?? {}) as RubricConfig['rules']
     },
@@ -68,6 +70,11 @@ threshold: ${DEFAULT_RUBRIC.threshold}
 # block = items below the threshold cannot be sent to Jira.
 # warn  = they can be sent after a confirmation.
 enforcement: ${DEFAULT_RUBRIC.enforcement}
+
+# true  = an item that has never been through a model review counts as failing,
+#         so nothing ships unreviewed.
+# false = the deterministic rules alone decide, and the model review is advisory.
+requireReview: ${DEFAULT_RUBRIC.requireReview}
 
 # Criterion weights. 0 removes a criterion entirely without capping the score.
 weights: {}
