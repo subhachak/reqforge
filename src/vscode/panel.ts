@@ -49,6 +49,20 @@ export class BacklogPanel {
   private busy = false;
   private busyLabel = '';
 
+  /**
+   * Undo history, held by the host so it survives a webview reload and covers
+   * generated content and deletions, not just typing.
+   *
+   * Deliberately cleared after a push: undoing past a push would roll back the
+   * Jira keys we just recorded, and the next push would then create duplicates
+   * of issues that already exist. Local edits are reversible; sending is not.
+   */
+  private history: { backlog: Backlog; label: string; at: number; key?: string }[] = [];
+  private future: { backlog: Backlog; label: string }[] = [];
+  private static readonly MAX_HISTORY = 50;
+  /** Consecutive edits inside this window collapse into one undo step. */
+  private static readonly COALESCE_MS = 2000;
+
   private constructor(
     private readonly ctx: vscode.ExtensionContext,
     private readonly panel: vscode.WebviewPanel,
@@ -106,9 +120,53 @@ export class BacklogPanel {
           }
         : undefined,
       jiraBrowseBase: cfg().get<string>('atlassian.baseUrl', '').replace(/\/+$/, ''),
-      canPush: Boolean(this.backlog?.target.projectKey)
+      canPush: Boolean(this.backlog?.target.projectKey),
+      undoLabel: this.history[this.history.length - 1]?.label,
+      redoLabel: this.future[this.future.length - 1]?.label
     };
     this.post({ type: 'state', state });
+  }
+
+  /* ---------------------------------------------------------------- undo */
+
+  /**
+   * Records the state *before* a mutation. `coalesceKey` groups a burst of the
+   * same kind of change — typing — into a single undo step, so Undo reverses a
+   * sentence rather than a keystroke.
+   */
+  private snapshot(label: string, coalesceKey?: string) {
+    if (!this.backlog) return;
+    const last = this.history[this.history.length - 1];
+    if (coalesceKey && last?.key === coalesceKey && Date.now() - last.at < BacklogPanel.COALESCE_MS) {
+      last.at = Date.now(); // extend the window; keep the older pre-edit state
+      return;
+    }
+    this.history.push({ backlog: structuredClone(this.backlog), label, at: Date.now(), key: coalesceKey });
+    if (this.history.length > BacklogPanel.MAX_HISTORY) this.history.shift();
+    this.future = [];
+  }
+
+  private async undo() {
+    const entry = this.history.pop();
+    if (!entry || !this.backlog) return;
+    this.future.push({ backlog: structuredClone(this.backlog), label: entry.label });
+    this.backlog = entry.backlog;
+    await this.save();
+    await this.send();
+  }
+
+  private async redo() {
+    const entry = this.future.pop();
+    if (!entry || !this.backlog) return;
+    this.history.push({ backlog: structuredClone(this.backlog), label: entry.label, at: Date.now() });
+    this.backlog = entry.backlog;
+    await this.save();
+    await this.send();
+  }
+
+  private clearHistory() {
+    this.history = [];
+    this.future = [];
   }
 
   private async save() {
@@ -123,6 +181,7 @@ export class BacklogPanel {
     this.slug = slug;
     this.plan = undefined;
     this.pendingRefine = undefined;
+    this.clearHistory();
     await this.send();
   }
 
@@ -171,8 +230,18 @@ export class BacklogPanel {
 
       case 'edit':
         if (!this.backlog) return;
+        this.snapshot('edit', 'edit');
         this.backlog.epics = msg.epics;
         await this.save();
+        await this.send();
+        return;
+
+      case 'undo':
+        await this.undo();
+        return;
+
+      case 'redo':
+        await this.redo();
         return;
 
       case 'dismissNotice':
@@ -201,6 +270,7 @@ export class BacklogPanel {
 
       case 'addEpic': {
         if (!this.backlog) return;
+        this.snapshot('add epic');
         const ref = this.uniqueRef('new-epic');
         this.backlog.epics.push({
           ref,
@@ -225,6 +295,7 @@ export class BacklogPanel {
       case 'addStory': {
         const epic = this.backlog?.epics.find((e) => e.ref === msg.epicRef);
         if (!epic) return;
+        this.snapshot('add story');
         epic.stories.push({
           ref: this.uniqueRef(`${epic.ref}-story`),
           epicRef: epic.ref,
@@ -255,6 +326,7 @@ export class BacklogPanel {
 
       case 'acceptRefine':
         if (this.backlog && this.pendingRefine) {
+          this.snapshot('rewrite');
           applyRefinement(this.backlog, this.pendingRefine);
           this.pendingRefine = undefined;
           await this.save();
@@ -299,6 +371,7 @@ export class BacklogPanel {
     const ok = await vscode.window.showWarningMessage(warning, { modal: true, detail }, 'Remove');
     if (ok !== 'Remove') return;
 
+    this.snapshot(level === 'epic' ? 'delete epic' : 'delete story');
     if (level === 'epic') {
       this.backlog.epics = this.backlog.epics.filter((e) => e.ref !== ref);
     } else {
@@ -310,6 +383,7 @@ export class BacklogPanel {
 
   private async generateStories(epicRefs: string[]) {
     if (!this.backlog) return;
+    this.snapshot('generate stories');
     await this.run('Generating stories…', async () => {
       const { llm } = await this.ports();
       await decomposeEpics(llm, this.backlog!, epicRefs, {
@@ -374,8 +448,10 @@ export class BacklogPanel {
         }
       });
       // Save regardless of failures: the keys we did obtain must not be lost,
-      // or the next run creates duplicates.
+      // or the next run creates duplicates. For the same reason the undo
+      // history is dropped — rolling back past a push would discard those keys.
       await this.save();
+      this.clearHistory();
 
       this.out.appendLine(
         `\nPush: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped, ${result.failures.length} failed`

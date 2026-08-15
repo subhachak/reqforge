@@ -107,6 +107,8 @@ The restricted build runs a **compliance guard** (`esbuild.mjs`) that greps the 
 
 **Partial failure is saved.** `executePush` saves the backlog file even when some items fail, so the keys already obtained are never lost and the retry does not duplicate.
 
+**Undo covers everything local, and stops at the push.** The host keeps up to 50 snapshots, so Undo reverses generated stories, accepted rewrites and deletions, not just typing — consecutive keystrokes collapse into one step. The history is cleared after a push on purpose: undoing past a push would roll back the Jira keys just recorded, and the next push would then duplicate issues that already exist. Local edits are reversible; sending is not.
+
 **Content fidelity.** Confluence storage format is XHTML plus `ac:` macro tags. `storageFormat.ts` normalizes code macros, info/note/warning panels, expands, task lists, and tables before Turndown sees them — PRD content is very often inside an expand or a table, and silently losing it would produce a confidently wrong backlog.
 
 ---
@@ -180,7 +182,6 @@ Honest list of what a weekend did not cover:
 - **MCP adapter** (`src/adapters/atlassian/mcp.ts`) — interface and registry slot exist; the adapter does not. Out of scope for the restricted client by policy.
 - **Anthropic LLM adapter** — same.
 - **Fixture recorder.** `FixtureLlmAdapter` replays fixtures, but nothing writes them yet, and the `reqforge.llm.recordFixtures` setting referenced in its doc comment does not exist. Offline demo mode is therefore not usable as shipped.
-- **Undo in the panel.** Edits save on a 400ms debounce with no undo stack. The backlog file is in git, which is the current answer, but that is a developer's answer and not a product owner's.
 - **Reordering and moving stories between epics.** Splitting an epic still means adding a new one and retyping.
 - **Story points as a real Jira field.** `points` is rendered into the description text, not written to the story-points custom field, whose id differs per instance.
 - **Copilot agent-mode tools.** Expose the pipeline stages via `vscode.lm.registerTool` so Copilot agent mode can drive them conversationally. Tools must call the core (so dry-run and idempotency still apply), and every write tool must return `confirmationMessages` from `prepareInvocation`. Not MCP — no new egress — so it should survive the client's policy, but confirm agent mode itself is permitted.

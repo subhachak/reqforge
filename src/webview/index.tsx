@@ -25,7 +25,9 @@ const EMPTY: PanelState = {
   notice: undefined,
   pendingRefine: undefined,
   jiraBrowseBase: '',
-  canPush: false
+  canPush: false,
+  undoLabel: undefined,
+  redoLabel: undefined
 };
 
 /* ------------------------------------------------------------- primitives */
@@ -606,6 +608,24 @@ function App() {
     [flush]
   );
 
+  /**
+   * Undo/redo is intercepted globally rather than deferring to the browser's
+   * native textarea undo, which does not work usefully in a controlled React
+   * input anyway. Pending edits are flushed first so the host's history has
+   * the current text in it before it steps back.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || e.key.toLowerCase() !== 'z') return;
+      e.preventDefault();
+      flush();
+      post({ type: e.shiftKey ? 'redo' : 'undo' });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [flush]);
+
   const current = useMemo(() => epics.find((e) => e.ref === selected), [epics, selected]);
   const onlyRefs = useMemo(() => [...included], [included]);
 
@@ -650,6 +670,22 @@ function App() {
         </div>
         <div className="spacer" />
         <div className="actions">
+          <button
+            className="ghost"
+            disabled={state.busy || !state.undoLabel}
+            title={state.undoLabel ? `Undo ${state.undoLabel} (⌘Z)` : 'Nothing to undo'}
+            onClick={() => act({ type: 'undo' })}
+          >
+            ↶ Undo
+          </button>
+          <button
+            className="ghost"
+            disabled={state.busy || !state.redoLabel}
+            title={state.redoLabel ? `Redo ${state.redoLabel} (⇧⌘Z)` : 'Nothing to redo'}
+            onClick={() => act({ type: 'redo' })}
+          >
+            ↷ Redo
+          </button>
           {state.available.length > 1 && (
             <select
               style={{ width: 200 }}

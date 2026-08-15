@@ -36,6 +36,9 @@ export interface PanelState {
     | undefined;
   jiraBrowseBase: string;
   canPush: boolean;
+  /** What Undo would reverse, e.g. "delete epic". Absent when there is nothing to undo. */
+  undoLabel: string | undefined;
+  redoLabel: string | undefined;
 }
 
 export type HostMessage =
@@ -57,6 +60,8 @@ export type WebviewMessage =
   | { type: 'deleteItem'; level: 'epic' | 'story'; ref: string }
   | { type: 'previewPush'; only: string[] }
   | { type: 'push'; only: string[] }
+  | { type: 'undo' }
+  | { type: 'redo' }
   | { type: 'dismissNotice' }
   | { type: 'dismissPlan' }
   | { type: 'openExternal'; url: string }

@@ -92,6 +92,8 @@ const state = {
   notice: undefined,
   pendingRefine: undefined,
   jiraBrowseBase: 'https://example.atlassian.net',
+  undoLabel: 'edit',
+  redoLabel: undefined,
   canPush: true
 };
 
