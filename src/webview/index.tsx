@@ -308,8 +308,8 @@ function ScorePill({ quality }: { quality: ItemQuality | undefined }) {
   }
   if (quality.deterministicOnly) {
     return (
-      <span className="pill unknown" title="Not reviewed yet — run a quality review">
-        not reviewed
+      <span className="pill unknown" title="Not checked yet">
+        not checked
       </span>
     );
   }
@@ -428,8 +428,8 @@ function QualityPanel({
 
       {quality.deterministicOnly ? (
         <p style={{ color: 'var(--muted)', marginTop: 12 }}>
-          Automatic checks only. Run a quality review to rate this against{' '}
-          {quality.level === 'story' ? 'INVEST' : 'the epic rubric'}.
+          Not checked yet. Checking rates it against{' '}
+          {quality.level === 'story' ? 'INVEST' : 'the epic criteria'}.
         </p>
       ) : (
         <div className="criteria">
@@ -465,6 +465,54 @@ function QualityPanel({
   );
 }
 
+
+/** Plain words for states the code calls something else. */
+const READINESS_WORDS = {
+  notChecked: 'Not checked',
+  needsWork: 'Needs work',
+  ready: 'Ready',
+  blocked: 'Missing something'
+} as const;
+
+/* --------------------------------------------------------------- next step */
+
+/**
+ * What to do next, decided here rather than by the person using it.
+ *
+ * The panel accumulated eight header controls, and a product owner had to know
+ * the order to use them in — check, then fix, then send. That order is knowable
+ * from the state, so the panel states it and offers one button. Everything else
+ * stays reachable but stops competing for attention.
+ */
+function nextStep(state: PanelState, pending: number):
+  | { label: string; why: string; msg: WebviewMessage }
+  | undefined {
+  const q = state.quality;
+  if (!state.backlog?.epics.length) return undefined;
+
+  if (q && q.unassessed > 0) {
+    return {
+      label: `Check quality (${q.unassessed})`,
+      why: `${q.unassessed} item${q.unassessed === 1 ? ' has' : 's have'} not been checked yet.`,
+      msg: { type: 'deepReview' }
+    };
+  }
+  if (q && q.failed > 0) {
+    return {
+      label: `Fix ${q.failed} item${q.failed === 1 ? '' : 's'}`,
+      why: `${q.failed} item${q.failed === 1 ? ' needs' : 's need'} work. ReqForge can rewrite them and check again.`,
+      msg: { type: 'improve' }
+    };
+  }
+  if (pending > 0) {
+    return {
+      label: `Send ${pending} to Jira`,
+      why: `Everything looks good. ${pending} item${pending === 1 ? ' is' : 's are'} ready to send.`,
+      msg: { type: 'previewPush', only: state.backlog.epics.map((e) => e.ref) }
+    };
+  }
+  return undefined;
+}
 
 /* ---------------------------------------------------------------- dashboard */
 
@@ -507,10 +555,10 @@ function groupKeyOf(row: Row, by: GroupBy, epicTitles: Map<string, string>): str
     case 'priority':
       return row.priority || 'Should';
     case 'readiness':
-      if (!row.quality) return 'Not reviewed';
-      if (row.quality.blockedBy.length) return 'Blocked';
-      if (row.quality.deterministicOnly) return 'Not reviewed';
-      return row.quality.passed ? 'Ready' : 'Below threshold';
+      if (!row.quality) return READINESS_WORDS.notChecked;
+      if (row.quality.blockedBy.length) return READINESS_WORDS.blocked;
+      if (row.quality.deterministicOnly) return READINESS_WORDS.notChecked;
+      return row.quality.passed ? READINESS_WORDS.ready : READINESS_WORDS.needsWork;
     case 'sync':
       return { new: 'Not sent', edited: 'Changed since sent', synced: 'In Jira' }[row.status];
     case 'size':
@@ -670,9 +718,9 @@ function Dashboard(props: {
           {state.quality && !state.quality.unassessed && <> · average {state.quality.score}</>}
         </div>
         <div className="chip-row">
-          {chip('not-reviewed', 'not reviewed', counts['not-reviewed'])}
-          {chip('below-threshold', `below ${state.rubric.threshold}`, counts['below-threshold'])}
-          {chip('blocked', 'blocked', counts.blocked)}
+          {chip('not-reviewed', 'not checked', counts['not-reviewed'])}
+          {chip('below-threshold', 'need work', counts['below-threshold'])}
+          {chip('blocked', 'missing something', counts.blocked)}
           {chip('not-sent', 'not sent', counts['not-sent'])}
           {chip('no-stories', 'without stories', counts['no-stories'])}
           {filter !== 'all' && (
@@ -856,6 +904,7 @@ function StoryCard(props: {
   onReview: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [instruction, setInstruction] = useState('');
   const s = props.story;
   const status = statusOf(s, props.quality);
@@ -915,6 +964,13 @@ function StoryCard(props: {
             <AcEditor items={s.acceptanceCriteria} onChange={(v) => patch({ acceptanceCriteria: v })} />
           </Field>
 
+          <button className="disclosure" onClick={() => setShowAll(!showAll)}>
+            {showAll ? '▾' : '▸'} More detail
+            <span className="disclosure-hint">scope, technical notes, assumptions, links, dependencies</span>
+          </button>
+
+          {showAll && (
+          <>
           <Field label="Out of scope" hint="what belongs to a sibling story" name="outOfScope">
             <ListEditor
               items={s.outOfScope ?? []}
@@ -1005,6 +1061,9 @@ function StoryCard(props: {
             onLocate={(field) => locateField(`story:${s.ref}`, field)}
           />
 
+          </>
+          )}
+
           <div className="refine">
             <input
               value={instruction}
@@ -1058,6 +1117,9 @@ function EpicDetail(props: {
   const e = props.epic;
   const sourceKind = props.sourceKind;
   const [instruction, setInstruction] = useState('');
+  // Fourteen fields at once is a form, not a review. Five carry the decisions a
+  // product owner actually makes; the rest are there when wanted.
+  const [showAll, setShowAll] = useState(false);
   const status = statusOf(e, props.quality);
   const patch = (p: Partial<EpicItem>) => props.onChange({ ...e, ...p });
   const points = e.stories.reduce((n, s) => n + s.points, 0);
@@ -1119,6 +1181,19 @@ function EpicDetail(props: {
         </div>
       </div>
 
+      <Field label="Acceptance criteria" name="acceptanceCriteria">
+        <AcEditor items={e.acceptanceCriteria} onChange={(v) => patch({ acceptanceCriteria: v })} />
+      </Field>
+
+      <button className="disclosure" onClick={() => setShowAll(!showAll)}>
+        {showAll ? '▾' : '▸'} More detail
+        <span className="disclosure-hint">
+          success measures, scope, non-functional requirements, assumptions, links, dependencies
+        </span>
+      </button>
+
+      {showAll && (
+      <>
       <Field label="Success measures" hint="how you would know the outcome happened" name="successMeasures">
         <ListEditor
           items={e.successMeasures ?? []}
@@ -1144,10 +1219,6 @@ function EpicDetail(props: {
           placeholder="Something this epic explicitly does not cover"
           addLabel="Add"
         />
-      </Field>
-
-      <Field label="Acceptance criteria" name="acceptanceCriteria">
-        <AcEditor items={e.acceptanceCriteria} onChange={(v) => patch({ acceptanceCriteria: v })} />
       </Field>
 
       <Field
@@ -1187,7 +1258,10 @@ function EpicDetail(props: {
         </Field>
       )}
 
-      {e.sourceEvidence.length > 0 && (
+      </>
+      )}
+
+      {showAll && e.sourceEvidence.length > 0 && (
         <Field
           label={sourceKind === 'jira' ? 'Evidence' : 'Evidence from the source document'}
           hint="quoted when this epic was created, and not rewritten since"
@@ -1736,6 +1810,7 @@ function App() {
   // change one thing. Reset on a backlog switch so you never land mid-edit in
   // something you did not open.
   const [mode, setMode] = useState<'dashboard' | 'editor'>('dashboard');
+  const [showMore, setShowMore] = useState(false);
   useEffect(() => setMode('dashboard'), [state.slug]);
   const [storiesNeedingWorkOnly, setStoriesNeedingWorkOnly] = useState(false);
   // Collapsed by default: valuable, but it must not push the epics below the
@@ -1868,6 +1943,8 @@ function App() {
     };
   }, [epics, qualityFor]);
 
+  const step = useMemo(() => nextStep(state, totals.pending), [state, totals.pending]);
+
   /* Chrome shared by every view: the notice banner, busy overlay, and a way
      back to the home screen. Setup deliberately has no escape hatch. */
   const chrome = (title: string, sub: string, actions: React.ReactNode) => (
@@ -1975,78 +2052,86 @@ function App() {
         </div>
         <div className="spacer" />
         <div className="actions">
-          <button
-            className="ghost"
-            disabled={state.busy || !state.undoLabel}
-            title={state.undoLabel ? `Undo ${state.undoLabel} (⌘Z)` : 'Nothing to undo'}
-            onClick={() => act({ type: 'undo' })}
-          >
-            ↶ Undo
-          </button>
-          <button
-            className="ghost"
-            disabled={state.busy || !state.redoLabel}
-            title={state.redoLabel ? `Redo ${state.redoLabel} (⇧⌘Z)` : 'Nothing to redo'}
-            onClick={() => act({ type: 'redo' })}
-          >
-            ↷ Redo
-          </button>
-          {state.quality && (
-            <span
-              className={`pill ${state.quality.unassessed > 0 ? 'unknown' : state.quality.failed > 0 ? 'fail' : 'pass'}`}
-              title={`Average score across reviewed items. Threshold ${state.quality.threshold}.`}
-            >
-              {state.quality.unassessed === state.quality.items.length
-                ? 'not reviewed'
-                : `${state.quality.score} avg · ${state.quality.failed} below`}
-            </span>
+          {step ? (
+            <button className="primary" disabled={state.busy} onClick={() => act(step.msg)} title={step.why}>
+              {step.label}
+            </button>
+          ) : (
+            <span className="pill pass">Everything is ready</span>
           )}
-          <button
-            disabled={state.busy || (state.quality?.unassessed ?? 0) === 0}
-            onClick={() => act({ type: 'deepReview' })}
-            title={
-              (state.quality?.unassessed ?? 0) === 0
-                ? 'Every item has been reviewed against the current content. Edit something to re-run, or use Re-review on a single item.'
-                : `Rate ${state.quality?.unassessed} item(s) against the rubric`
-            }
-          >
-            {(state.quality?.unassessed ?? 0) === 0
-              ? 'Reviewed'
-              : `Review quality (${state.quality?.unassessed})`}
+          <button className="ghost" title="More" onClick={() => setShowMore(!showMore)}>
+            ⋯
           </button>
-          <button
-            className="ghost"
-            onClick={() => setMode(mode === 'dashboard' ? 'editor' : 'dashboard')}
-            title={mode === 'dashboard' ? 'Open the editor' : 'Back to the overview'}
-          >
-            {mode === 'dashboard' ? '✎ Editor' : '▤ Overview'}
-          </button>
-          <button
-            disabled={state.busy || (state.quality?.failed ?? 0) + (state.quality?.unassessed ?? 0) === 0}
-            onClick={() => act({ type: 'improve' })}
-            title="Assess, rewrite what falls short, re-check, and repeat until it passes or a budget stops it. Nothing is sent to Jira."
-          >
-            ✦ Improve
-          </button>
-          <button className="ghost" onClick={() => act({ type: 'navigate', view: 'setup' })}>
-            ⚙
-          </button>
-          <button
-            disabled={state.busy || totals.pending === 0}
-            className="primary"
-            onClick={() => act({ type: 'previewPush', only: onlyRefs })}
-            title={
-              totals.pending === 0
-                ? `All ${totals.total} items match what is in Jira. Edit something to send again.`
-                : `${totals.pending} item(s) to create or update`
-            }
-          >
-            {totals.pending === 0 ? 'All sent to Jira' : `Review & send to Jira (${totals.pending})`}
-          </button>
+          {showMore && (
+            <div className="overflow">
+              <button
+                disabled={state.busy || !state.undoLabel}
+                onClick={() => {
+                  act({ type: 'undo' });
+                  setShowMore(false);
+                }}
+              >
+                Undo {state.undoLabel ?? ''} <span className="key">⌘Z</span>
+              </button>
+              <button
+                disabled={state.busy || !state.redoLabel}
+                onClick={() => {
+                  act({ type: 'redo' });
+                  setShowMore(false);
+                }}
+              >
+                Redo <span className="key">⇧⌘Z</span>
+              </button>
+              <button
+                disabled={state.busy || (state.quality?.unassessed ?? 0) === 0}
+                onClick={() => {
+                  act({ type: 'deepReview' });
+                  setShowMore(false);
+                }}
+              >
+                Check quality
+              </button>
+              <button
+                disabled={state.busy}
+                onClick={() => {
+                  act({ type: 'improve' });
+                  setShowMore(false);
+                }}
+              >
+                Fix what needs work
+              </button>
+              <button
+                disabled={state.busy || totals.pending === 0}
+                onClick={() => {
+                  act({ type: 'previewPush', only: onlyRefs });
+                  setShowMore(false);
+                }}
+              >
+                Send to Jira
+              </button>
+              <button
+                onClick={() => {
+                  act({ type: 'navigate', view: 'setup' });
+                  setShowMore(false);
+                }}
+              >
+                Settings
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {banner}
+
+      {step && !state.busy && (
+        <div className="guidance">
+          <span>{step.why}</span>
+          <button className="link-like" onClick={() => act(step.msg)}>
+            {step.label}
+          </button>
+        </div>
+      )}
 
       {(b.prd.openQuestions.length > 0 || b.prd.risks.length > 0) && (
         <div className="insights">

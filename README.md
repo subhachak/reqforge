@@ -321,6 +321,29 @@ model reports close to a million, which is a routing promise rather than a per-r
 taking it literally means never trimming a long document and sending a request large enough to
 fail at the transport.
 
+## Keeping it learnable
+
+The panel grew a control per capability and ended up with eight in the header, a vocabulary of
+*threshold, rubric, readiness, assessment, sync status, waiver*, and fourteen fields on an epic.
+Each addition was asked for; the surface area was not. Product owners will not be trained on this,
+so the shape is now:
+
+**One next step, decided by the tool.** The header carries a single primary button, and a line
+under it says why in plain words — *"12 items have not been checked yet"*, then *"8 items need
+work"*, then *"Everything looks good. 23 items are ready to send."* The order check → fix → send
+is knowable from the state, so the panel states it rather than making somebody learn it.
+
+**Everything else lives under `⋯`.** Undo, redo, check, fix, send and settings are all still one
+click away, but they stop competing with the thing you should do next.
+
+**Six fields on an epic, not fourteen.** Title, outcome, description, priority, size, acceptance
+criteria. Success measures, scope, non-functional requirements, assumptions, links, dependencies
+and evidence sit behind one *More detail* control. Same for stories.
+
+**Plain words.** "Not checked" rather than "not reviewed", "needs work" rather than "below
+threshold", "missing something" rather than "blocked". The rubric vocabulary is still exact in the
+files and the code; it just stopped leaking into the interface.
+
 ## The dashboard
 
 Opening a backlog lands on an overview rather than an editor, because with six epics and forty
