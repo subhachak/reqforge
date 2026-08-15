@@ -309,3 +309,20 @@ pre.readonly {
 .finding.waived  { color: var(--muted); opacity: 0.8; }
 .finding.waived em { font-style: italic; }
 .finding.accepted { color: var(--yellow); }
+
+/* Findings link to the field they are about. */
+.link-finding {
+  flex: 1; text-align: left; background: none; border: none; padding: 0;
+  color: inherit; font: inherit; cursor: pointer; text-decoration: underline;
+  text-decoration-color: var(--border); text-underline-offset: 3px;
+}
+.link-finding:hover { text-decoration-color: var(--fg); }
+
+@keyframes field-flash {
+  0%, 100% { background: transparent; }
+  20%      { background: color-mix(in srgb, var(--focus) 22%, transparent); }
+}
+.field.flash {
+  animation: field-flash 1.5s ease-out;
+  border-radius: var(--radius);
+}

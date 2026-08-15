@@ -112,9 +112,9 @@ function Grow(props: { value: string; onChange: (v: string) => void; placeholder
   );
 }
 
-function Field(props: { label: string; hint?: string; children: React.ReactNode }) {
+function Field(props: { label: string; hint?: string; name?: string; children: React.ReactNode }) {
   return (
-    <div className="field">
+    <div className="field" data-field={props.name}>
       <label>
         {props.label} {props.hint && <span className="hint">— {props.hint}</span>}
       </label>
@@ -180,6 +180,37 @@ function AcEditor(props: { items: AcceptanceCriterion[]; onChange: (v: Acceptanc
   );
 }
 
+/* ---------------------------------------------------------------- locating */
+
+/**
+ * Scrolls to the field a finding is about and flashes it.
+ *
+ * Scoped by the owning item, and matches are filtered to those whose nearest
+ * [data-item] ancestor is that container. Epics and stories both have a
+ * "title" field, so if the containers are ever nested — moving the stories
+ * inside the epic container would do it — an unscoped query would silently
+ * jump to the wrong one.
+ */
+function locateField(itemKey: string, field: string): void {
+  const container = document.querySelector(`[data-item="${itemKey}"]`);
+  if (!container) return;
+
+  const target = [...container.querySelectorAll(`[data-field="${field}"]`)].find(
+    (el) => el.closest('[data-item]') === container
+  ) as HTMLElement | undefined;
+  if (!target) return;
+
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  target.classList.remove('flash');
+  // Force a reflow so the animation restarts when the same field is clicked twice.
+  void target.offsetWidth;
+  target.classList.add('flash');
+  window.setTimeout(() => target.classList.remove('flash'), 1600);
+
+  const input = target.querySelector('input, textarea') as HTMLElement | null;
+  input?.focus({ preventScroll: true });
+}
+
 /* ----------------------------------------------------------------- quality */
 
 function scoreClass(q: ItemQuality | undefined): string {
@@ -225,7 +256,8 @@ function QualityPanel({
   onWaive,
   onUnwaive,
   onAccept,
-  onRevoke
+  onRevoke,
+  onLocate
 }: {
   quality: ItemQuality | undefined;
   criteria: CriterionDef[];
@@ -236,6 +268,7 @@ function QualityPanel({
   onUnwaive: (ruleId: string) => void;
   onAccept: () => void;
   onRevoke: () => void;
+  onLocate: (field: string) => void;
 }) {
   if (!quality) return null;
   const hasFindings = quality.blockedBy.length > 0 || quality.warnings.length > 0;
@@ -287,7 +320,15 @@ function QualityPanel({
           <span className={`badge ${f.severity === 'blocker' ? 'create' : 'skip'}`} style={f.severity === 'blocker' ? { background: 'var(--red)' } : undefined}>
             {f.severity}
           </span>
-          <span style={{ flex: 1 }}>{f.message}</span>
+          {/* Clicking a finding takes you to the field it is about — the
+              fastest manual fix is usually to edit the thing directly. */}
+          {f.field ? (
+            <button className="link-finding" onClick={() => onLocate(f.field!)} title="Go to this field">
+              {f.message}
+            </button>
+          ) : (
+            <span style={{ flex: 1 }}>{f.message}</span>
+          )}
           {/* The manual path: a rule that does not apply here can be dismissed
               with a reason, rather than being disabled for the whole project. */}
           <button className="ghost" title="This check does not apply here" onClick={() => onWaive(f.ruleId)}>
@@ -434,12 +475,12 @@ function StoryCard(props: {
       </div>
 
       {open && (
-        <div className="story-body">
-          <Field label="Title">
+        <div className="story-body" data-item={`story:${s.ref}`}>
+          <Field label="Title" name="title">
             <Grow value={s.title} onChange={(v) => patch({ title: v })} />
           </Field>
 
-          <Field label="User story">
+          <Field label="User story" name="narrative">
             <div className="row">
               <div className="kw" style={{ width: 60 }}>As a</div>
               <Grow value={s.narrative.asA} onChange={(v) => patch({ narrative: { ...s.narrative, asA: v } })} />
@@ -454,7 +495,7 @@ function StoryCard(props: {
             </div>
           </Field>
 
-          <Field label="Acceptance criteria" hint="what QA will actually check">
+          <Field label="Acceptance criteria" hint="what QA will actually check" name="acceptanceCriteria">
             <AcEditor items={s.acceptanceCriteria} onChange={(v) => patch({ acceptanceCriteria: v })} />
           </Field>
 
@@ -472,7 +513,7 @@ function StoryCard(props: {
           </Field>
 
           {s.openQuestions.length > 0 && (
-            <Field label="Open questions" hint="answer these before the story is ready">
+            <Field label="Open questions" hint="answer these before the story is ready" name="openQuestions">
               <ListEditor
                 items={s.openQuestions}
                 onChange={(v) => patch({ openQuestions: v })}
@@ -492,6 +533,7 @@ function StoryCard(props: {
             onUnwaive={(ruleId) => post({ type: 'unwaiveFinding', level: 'story', ref: s.ref, ruleId })}
             onAccept={() => post({ type: 'acceptBelowThreshold', level: 'story', ref: s.ref })}
             onRevoke={() => post({ type: 'revokeAcceptance', level: 'story', ref: s.ref })}
+            onLocate={(field) => locateField(`story:${s.ref}`, field)}
           />
 
           <div className="refine">
@@ -558,6 +600,7 @@ function EpicDetail(props: {
 
   return (
     <>
+      <div data-item={`epic:${e.ref}`}>
       <div className="chip-row" style={{ marginBottom: 14 }}>
         <span className={`dot ${status}`} />
         <span style={{ color: 'var(--muted)', fontSize: 12 }}>{STATUS_LABEL[status]}</span>
@@ -574,11 +617,11 @@ function EpicDetail(props: {
         {points > 0 && <span className="chip">{points} points</span>}
       </div>
 
-      <Field label="Title">
+      <Field label="Title" name="title">
         <input className="title-input" value={e.title} onChange={(ev) => patch({ title: ev.target.value })} />
       </Field>
 
-      <Field label="Outcome" hint="what is true once this ships, in business terms">
+      <Field label="Outcome" hint="what is true once this ships, in business terms" name="outcome">
         <Grow value={e.outcome} onChange={(v) => patch({ outcome: v })} />
       </Field>
 
@@ -605,7 +648,7 @@ function EpicDetail(props: {
         />
       </Field>
 
-      <Field label="Out of scope" hint="the cheapest way to prevent scope drift">
+      <Field label="Out of scope" hint="the cheapest way to prevent scope drift" name="outOfScope">
         <ListEditor
           items={e.outOfScope}
           onChange={(v) => patch({ outOfScope: v })}
@@ -614,12 +657,12 @@ function EpicDetail(props: {
         />
       </Field>
 
-      <Field label="Acceptance criteria">
+      <Field label="Acceptance criteria" name="acceptanceCriteria">
         <AcEditor items={e.acceptanceCriteria} onChange={(v) => patch({ acceptanceCriteria: v })} />
       </Field>
 
       {e.openQuestions.length > 0 && (
-        <Field label="Open questions" hint="answer these before planning">
+        <Field label="Open questions" hint="answer these before planning" name="openQuestions">
           <ListEditor
             items={e.openQuestions}
             onChange={(v) => patch({ openQuestions: v })}
@@ -630,7 +673,7 @@ function EpicDetail(props: {
       )}
 
       {e.sourceEvidence.length > 0 && (
-        <Field label="Evidence from the source document" hint="why this epic exists">
+        <Field label="Evidence from the source document" hint="why this epic exists" name="sourceEvidence">
           <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--muted)' }}>
             {e.sourceEvidence.map((q, i) => (
               <li key={i}>“{q}”</li>
@@ -649,6 +692,7 @@ function EpicDetail(props: {
         onUnwaive={(ruleId) => post({ type: 'unwaiveFinding', level: 'epic', ref: e.ref, ruleId })}
         onAccept={() => post({ type: 'acceptBelowThreshold', level: 'epic', ref: e.ref })}
         onRevoke={() => post({ type: 'revokeAcceptance', level: 'epic', ref: e.ref })}
+        onLocate={(field) => locateField(`epic:${e.ref}`, field)}
       />
 
       <div className="refine">
@@ -675,6 +719,8 @@ function EpicDetail(props: {
         <button className="ghost danger" onClick={props.onDelete}>
           Delete epic
         </button>
+      </div>
+
       </div>
 
       <div className="section-head">
