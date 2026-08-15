@@ -321,6 +321,29 @@ model reports close to a million, which is a routing promise rather than a per-r
 taking it literally means never trimming a long document and sending a request large enough to
 fail at the transport.
 
+## The dashboard
+
+Opening a backlog lands on an overview rather than an editor, because with six epics and forty
+stories the shape of the work matters more than any one item. Clicking a row opens the editor;
+the header toggles back.
+
+**Grouping is a pivot, not a fixed axis** — epic, priority, readiness, sync state or size. Every
+one of those already exists on every item, so five useful views cost barely more than one, and
+they work on backlogs generated before the dashboard existed. No `category` field to maintain and
+nothing new for the model to fill.
+
+**The counts along the top are filters.** Clicking *"8 below 70"* narrows the list to exactly
+those; *select all shown* then gives you the set. That is the three-click path to "improve
+everything that is failing", which is also the shortest interesting thing to demo.
+
+**Bulk actions divide in two, deliberately.** Setting priority or size is a local edit: instant,
+no requests, no network, undoable. Review, Improve, Generate stories and Send keep their existing
+confirmations and costs. The dashboard did not need new capabilities — those operations already
+took a set of refs. What it needed was a selection model.
+
+Selecting a story pulls its parent epic into the operation, because that is the unit those
+pipelines work in.
+
 ## Improving a backlog on its own
 
 The **Improve** button runs the one part of ReqForge that decides for itself what to do next:

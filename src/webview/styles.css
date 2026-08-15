@@ -326,3 +326,64 @@ pre.readonly {
   animation: field-flash 1.5s ease-out;
   border-radius: var(--radius);
 }
+
+/* ---------------------------------------------------------------- dashboard */
+
+/* Room for the fixed action bar, so the last row is never hidden behind it. */
+.dashboard { padding-bottom: 92px; }
+
+.dash-summary { margin-bottom: 16px; }
+.dash-totals { font-size: 13px; margin-bottom: 10px; }
+
+.filter-chip {
+  background: var(--secondary); color: var(--secondary-fg);
+  border-radius: 999px; padding: 4px 12px; font-size: 12px;
+}
+.filter-chip strong { color: var(--fg); }
+.filter-chip.on { background: var(--accent); color: var(--accent-fg); }
+.filter-chip.on strong { color: var(--accent-fg); }
+
+.dash-controls {
+  display: flex; align-items: center; gap: 8px;
+  padding-bottom: 10px; border-bottom: 1px solid var(--border); margin-bottom: 12px;
+}
+.dash-controls .spacer { flex: 1; }
+
+.dash-group { margin-bottom: 18px; }
+.dash-group-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 0; border-bottom: 1px solid var(--border); margin-bottom: 4px;
+}
+.dash-group-head h3 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.dash-group-head input[type="checkbox"] { width: auto; }
+
+.dash-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 4px; border-radius: var(--radius);
+}
+.dash-row:hover { background: var(--list-hover); }
+.dash-row.story { padding-left: 22px; font-size: 12px; }
+.dash-row input[type="checkbox"] { width: auto; flex: none; }
+.dash-row .dot { margin-top: 0; }
+
+.dash-title {
+  flex: 1; text-align: left; background: none; border: none; padding: 0;
+  color: inherit; font: inherit; cursor: pointer; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dash-title:hover { text-decoration: underline; }
+
+/*
+ * Fixed, not sticky. A sticky child is trapped inside its containing block's
+ * padding box and by whatever the scroll ancestry happens to be, which parked
+ * this bar part-way up the list. The bar belongs to the panel rather than to
+ * the list, so it is anchored to the panel.
+ */
+.dash-actions {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 12px 24px; border-top: 1px solid var(--border);
+  background: var(--bg); box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.28);
+}
+.dash-actions select { width: auto; }
+.dash-sep { width: 1px; height: 22px; background: var(--border); }
