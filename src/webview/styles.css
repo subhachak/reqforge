@@ -297,3 +297,12 @@ pre.readonly {
 .empty { padding: 60px 24px; text-align: center; color: var(--muted); }
 .empty h2 { color: var(--fg); font-size: 16px; margin: 0 0 8px; }
 .empty p { max-width: 420px; margin: 0 auto 18px; }
+
+/* ------------------------------------------------------------ rail tools */
+
+.rail-tools { padding: 4px 4px 10px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.rail-select {
+  display: flex; align-items: center; gap: 4px; margin-top: 6px;
+  font-size: 11px; color: var(--muted);
+}
+.rail-select button { padding: 2px 6px; font-size: 11px; }

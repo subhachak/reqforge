@@ -164,6 +164,17 @@ Assessments are cached by content fingerprint in `.reqforge/<slug>.quality.json`
 item invalidates its score rather than showing a stale one. The model pass is batched — Copilot
 offers no prompt caching, so one call per story would burn quota for nothing.
 
+### Working through the failures
+
+The rail filters by readiness — All / Needs work / Not reviewed / Ready, with live counts — and
+an epic's readiness is **the worst of itself and its stories**. An epic that reads perfectly but
+whose stories are unusable is not ready, and the filter says so. Inside an epic, a "N need work"
+toggle narrows the story list the same way. The detail pane follows the filter rather than
+leaving a hidden item on screen.
+
+Alongside it, `all shown` / `none` set which epics are included in the next send, so the useful
+workflow — filter to Ready, include all shown, send — is three clicks.
+
 ### Making it your own standard
 
 ```yaml

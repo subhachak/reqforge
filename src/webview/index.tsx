@@ -307,6 +307,36 @@ function QualityPanel({
   );
 }
 
+/* --------------------------------------------------------------- filtering */
+
+export type ReadinessFilter = 'all' | 'needs-work' | 'not-reviewed' | 'ready';
+
+/**
+ * An epic's readiness is the worst of itself and its stories: an epic whose
+ * stories are unusable is not ready, however well the epic itself reads. This
+ * is what makes the filter useful rather than merely decorative.
+ */
+function epicReadiness(
+  epic: EpicItem,
+  qualityFor: (level: 'epic' | 'story', ref: string) => ItemQuality | undefined
+): Exclude<ReadinessFilter, 'all'> {
+  const all = [qualityFor('epic', epic.ref), ...epic.stories.map((s) => qualityFor('story', s.ref))].filter(
+    Boolean
+  ) as ItemQuality[];
+  if (all.length === 0) return 'not-reviewed';
+  if (all.some((q) => !q.passed && !q.deterministicOnly)) return 'needs-work';
+  if (all.some((q) => q.blockedBy.length > 0)) return 'needs-work';
+  if (all.some((q) => q.deterministicOnly)) return 'not-reviewed';
+  return 'ready';
+}
+
+const FILTER_LABEL: Record<ReadinessFilter, string> = {
+  all: 'All',
+  'needs-work': 'Needs work',
+  'not-reviewed': 'Not reviewed',
+  ready: 'Ready'
+};
+
 /* ------------------------------------------------------------------ status */
 
 type Status = 'new' | 'edited' | 'synced';
@@ -466,12 +496,21 @@ function EpicDetail(props: {
   onGenerateStories: () => void;
   onAddStory: () => void;
   onDeleteStory: (ref: string) => void;
+  storiesNeedingWorkOnly: boolean;
+  onToggleStoryFilter: (value: boolean) => void;
 }) {
   const e = props.epic;
   const [instruction, setInstruction] = useState('');
   const status = statusOf(e);
   const patch = (p: Partial<EpicItem>) => props.onChange({ ...e, ...p });
   const points = e.stories.reduce((n, s) => n + s.points, 0);
+
+  const storyNeedsWork = (ref: string) => {
+    const q = props.qualityFor('story', ref);
+    return !q || q.deterministicOnly || !q.passed;
+  };
+  const needingWork = e.stories.filter((s) => storyNeedsWork(s.ref)).length;
+  const visibleStories = props.storiesNeedingWorkOnly ? e.stories.filter((s) => storyNeedsWork(s.ref)) : e.stories;
 
   return (
     <>
@@ -592,6 +631,15 @@ function EpicDetail(props: {
 
       <div className="section-head">
         <h2>Stories</h2>
+        {needingWork > 0 && (
+          <button
+            className="ghost"
+            title="Show only stories that are below the threshold or not yet reviewed"
+            onClick={() => props.onToggleStoryFilter(!props.storiesNeedingWorkOnly)}
+          >
+            {props.storiesNeedingWorkOnly ? `showing ${needingWork} needing work` : `${needingWork} need work`}
+          </button>
+        )}
         <div className="spacer" />
         <button className="ghost" onClick={props.onAddStory}>
           + Add manually
@@ -607,7 +655,7 @@ function EpicDetail(props: {
         </p>
       )}
 
-      {e.stories.map((s) => (
+      {visibleStories.map((s) => (
         <StoryCard
           key={s.ref}
           story={s}
@@ -1071,6 +1119,8 @@ function App() {
   const [state, setState] = useState<PanelState>(EMPTY);
   const [selected, setSelected] = useState<string | undefined>();
   const [included, setIncluded] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<ReadinessFilter>('all');
+  const [storiesNeedingWorkOnly, setStoriesNeedingWorkOnly] = useState(false);
   // Collapsed by default: valuable, but it must not push the epics below the
   // fold on first open. The counts in the header keep it discoverable.
   const [showInsights, setShowInsights] = useState(false);
@@ -1141,6 +1191,25 @@ function App() {
     (level: 'epic' | 'story', ref: string) => state.quality?.items.find((i) => i.level === level && i.ref === ref),
     [state.quality]
   );
+
+  const readiness = useCallback((epic: EpicItem) => epicReadiness(epic, qualityFor), [qualityFor]);
+
+  const filterCounts = useMemo(() => {
+    const counts: Record<ReadinessFilter, number> = { all: epics.length, 'needs-work': 0, 'not-reviewed': 0, ready: 0 };
+    for (const e of epics) counts[readiness(e)]++;
+    return counts;
+  }, [epics, readiness]);
+
+  const visibleEpics = useMemo(
+    () => (filter === 'all' ? epics : epics.filter((e) => readiness(e) === filter)),
+    [epics, filter, readiness]
+  );
+
+  // Keep the detail pane in step with the filter rather than showing a hidden item.
+  useEffect(() => {
+    if (visibleEpics.length === 0) return;
+    if (!selected || !visibleEpics.some((e) => e.ref === selected)) setSelected(visibleEpics[0].ref);
+  }, [visibleEpics, selected]);
 
   const current = useMemo(() => epics.find((e) => e.ref === selected), [epics, selected]);
   const onlyRefs = useMemo(() => [...included], [included]);
@@ -1362,7 +1431,37 @@ function App() {
 
       <div className="body">
         <div className="rail">
-          {epics.map((e) => {
+          <div className="rail-tools">
+            <select value={filter} onChange={(ev) => setFilter(ev.target.value as ReadinessFilter)}>
+              {(['all', 'needs-work', 'not-reviewed', 'ready'] as ReadinessFilter[]).map((f) => (
+                <option key={f} value={f} disabled={f !== 'all' && filterCounts[f] === 0}>
+                  {FILTER_LABEL[f]} ({filterCounts[f]})
+                </option>
+              ))}
+            </select>
+            <div className="rail-select">
+              <span>send:</span>
+              <button
+                className="ghost"
+                title="Include every epic currently shown"
+                onClick={() => setIncluded(new Set([...included, ...visibleEpics.map((e) => e.ref)]))}
+              >
+                all shown
+              </button>
+              <button className="ghost" title="Include none" onClick={() => setIncluded(new Set())}>
+                none
+              </button>
+              <span style={{ marginLeft: 'auto' }}>{included.size} selected</span>
+            </div>
+          </div>
+
+          {visibleEpics.length === 0 && (
+            <p style={{ color: 'var(--muted)', padding: '12px 10px' }}>
+              No epics are {FILTER_LABEL[filter].toLowerCase()}.
+            </p>
+          )}
+
+          {visibleEpics.map((e) => {
             const status = statusOf(e);
             return (
               <div
@@ -1415,6 +1514,8 @@ function App() {
               onRefine={(level, ref, instruction) => act({ type: 'refine', level, ref, instruction })}
               onGenerateStories={() => act({ type: 'generateStories', epicRefs: [current.ref] })}
               onAddStory={() => act({ type: 'addStory', epicRef: current.ref })}
+              storiesNeedingWorkOnly={storiesNeedingWorkOnly}
+              onToggleStoryFilter={setStoriesNeedingWorkOnly}
             />
           ) : (
             <div className="empty">
