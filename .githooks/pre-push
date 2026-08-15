@@ -1,0 +1,35 @@
+#!/bin/sh
+#
+# Builds the installable VSIX before every push.
+#
+# `npm run package` runs the typecheck, the full test suite, the compliance
+# guard against the restricted bundle, and then vsce. So this is not only a
+# packaging step: nothing reaches the remote that fails to build, fails a test,
+# or has leaked a forbidden dependency into the restricted profile.
+#
+# Git does not pick up a committed hooks directory on its own — it needs
+# `git config core.hooksPath .githooks`, which `npm run hooks` sets and which
+# `npm install` sets via the prepare script. A fresh clone therefore has to run
+# one of those before the hook does anything.
+#
+# Skip deliberately with `git push --no-verify` when you know why.
+
+set -e
+
+echo "pre-push: packaging the extension…"
+
+if ! npm run package; then
+  echo
+  echo "pre-push: packaging failed — nothing was pushed."
+  echo "Fix it, or push with --no-verify if you know why it is failing."
+  exit 1
+fi
+
+# vsce can report success without leaving a usable artifact, so check for one.
+if [ ! -s reqforge-restricted.vsix ]; then
+  echo "pre-push: reqforge-restricted.vsix was not produced. Nothing was pushed."
+  exit 1
+fi
+
+SIZE=$(du -h reqforge-restricted.vsix | cut -f1)
+echo "pre-push: reqforge-restricted.vsix ready ($SIZE)"

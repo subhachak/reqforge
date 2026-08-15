@@ -168,7 +168,9 @@
     "package": "npm run check && node esbuild.mjs --profile=restricted --minify && npx --yes @vscode/vsce package --out reqforge-restricted.vsix",
     "package:full": "npm run check && node esbuild.mjs --profile=full --minify && npx --yes @vscode/vsce package --out reqforge-full.vsix",
     "vscode:prepublish": "npm run build",
-    "harness": "node scripts/harness.mjs"
+    "harness": "node scripts/harness.mjs",
+    "hooks": "git config core.hooksPath .githooks && echo \"pre-push hook enabled\"",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
     "react": "^19.2.8",

@@ -140,6 +140,24 @@ unzip -p reqforge-restricted.vsix extension/dist/extension.js | grep -c "anthrop
 That grep should print `0` for the restricted build, which is the same check the compliance guard
 runs at build time.
 
+### The VSIX is built on every push
+
+```bash
+npm run hooks      # once per clone; npm install also does it
+```
+
+That points git at `.githooks`, whose `pre-push` runs `npm run package` — typecheck, the full
+test suite, the compliance guard, then vsce. Nothing reaches the remote that fails to build,
+fails a test, or has leaked a forbidden dependency into the restricted bundle, and the installable
+artifact always matches what was pushed.
+
+Verified by breaking the build on purpose and watching the push refuse. `git push --no-verify`
+skips it when you have a reason.
+
+The `.vsix` itself stays out of git — it is a build output, and a 420 KB binary per commit is not
+something to keep in history. Attach it to a GitHub Release when you want a fixed, downloadable
+version for the client.
+
 ### Getting it to the client
 
 For a client with a restrictive policy, hand over the `.vsix` directly — an internal file share,
