@@ -265,6 +265,25 @@ already provide. It costs one extra call per item, which is why it is staged rat
 priority and story-point fields. Both need per-instance field discovery, since the story-point
 field id differs between instances.
 
+## When Copilot fails at the network layer
+
+`net::ERR_HTTP2_PROTOCOL_ERROR` and its relatives come from the Copilot extension's own network
+stack, not from the model. They say nothing about the request and are usually gone a second later.
+
+ReqForge retries them: three attempts at 1s, 3s and 7s, with the reason written to the output
+channel and the wait shown in the panel, so a pause is explicable rather than looking like a hang.
+Refusals and permissions failures are deliberately excluded — retrying those burns quota to be
+told the same thing again.
+
+If all four attempts fail you get "Copilot could not be reached", which says it is a network
+problem rather than a problem with your requirements, and that nothing was lost. A VPN or
+corporate proxy is the usual culprit.
+
+The request is also capped at 120k tokens regardless of what the model advertises. The "Auto"
+model reports close to a million, which is a routing promise rather than a per-request budget;
+taking it literally means never trimming a long document and sending a request large enough to
+fail at the transport.
+
 ## Quality rubric
 
 Every item is scored, and items must pass a threshold before they can be sent to Jira.

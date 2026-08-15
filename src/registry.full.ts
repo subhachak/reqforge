@@ -44,7 +44,7 @@ export const registry: AdapterRegistry = {
         return new FixtureLlmAdapter(ctx.fixtures ?? {});
       case 'copilot':
       default:
-        return new CopilotLlmAdapter(ctx.modelFamily || undefined);
+        return new CopilotLlmAdapter(ctx.modelFamily || undefined, ctx.onLlmRetry);
     }
   }
 };

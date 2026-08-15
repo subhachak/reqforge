@@ -13,12 +13,19 @@ import { repairPrompt } from '../../core/prompts';
  * There is no fallback provider in the restricted build, so every failure mode
  * here has to produce an actionable message rather than a stack trace.
  */
+/** Generous for a requirements document; far below where requests start failing. */
+const MAX_REQUEST_TOKENS = 120_000;
+
 export class CopilotLlmAdapter implements LlmPort {
   readonly kind = 'copilot' as const;
 
   private cached: vscode.LanguageModelChat | undefined;
 
-  constructor(private readonly preferredFamily?: string) {}
+  constructor(
+    private readonly preferredFamily?: string,
+    /** Reports a transient failure and the wait before the next attempt. */
+    private readonly onRetry?: (attempt: number, delayMs: number, reason: string) => void
+  ) {}
 
   private async selectModel(): Promise<vscode.LanguageModelChat> {
     if (this.cached) return this.cached;
@@ -68,8 +75,12 @@ export class CopilotLlmAdapter implements LlmPort {
 
   async contextWindow(): Promise<number> {
     const model = await this.selectModel();
-    // Leave headroom for the response and for tool-schema overhead.
-    return Math.max(4000, Math.floor((model.maxInputTokens ?? 8000) * 0.75));
+    // Leave headroom for the response and for tool-schema overhead, then cap.
+    // The "Auto" model advertises close to a million tokens, which is a routing
+    // promise rather than a per-request budget; taking it literally means never
+    // trimming and sending a request large enough to fail at the transport.
+    const advertised = Math.floor((model.maxInputTokens ?? 8000) * 0.75);
+    return Math.max(4000, Math.min(advertised, MAX_REQUEST_TOKENS));
   }
 
   async countTokens(text: string): Promise<number> {
@@ -118,31 +129,37 @@ export class CopilotLlmAdapter implements LlmPort {
     req: StructuredRequest<T>,
     cts: vscode.CancellationToken
   ): Promise<{ ok: true; value: T } | { ok: false; error: string }> {
-    let response: vscode.LanguageModelChatResponse;
-    try {
-      response = await model.sendRequest(
-        messages,
-        {
-          justification: req.justification,
-          tools: [tool],
-          toolMode: vscode.LanguageModelChatToolMode.Required
-        },
-        cts
-      );
-    } catch (err) {
-      throw translateLmError(err);
-    }
-
     let toolInput: unknown;
     let prose = '';
+
+    // Send and consume the stream inside one retry: a protocol error can
+    // surface either when the request goes out or partway through the response,
+    // and a half-read stream cannot be resumed.
     try {
-      for await (const part of response.stream) {
-        if (part instanceof vscode.LanguageModelToolCallPart) {
-          if (part.name === tool.name) toolInput = part.input;
-        } else if (part instanceof vscode.LanguageModelTextPart) {
-          prose += part.value;
-        }
-      }
+      await withRetry(
+        req.toolName,
+        async () => {
+          toolInput = undefined;
+          prose = '';
+          const response = await model.sendRequest(
+            messages,
+            {
+              justification: req.justification,
+              tools: [tool],
+              toolMode: vscode.LanguageModelChatToolMode.Required
+            },
+            cts
+          );
+          for await (const part of response.stream) {
+            if (part instanceof vscode.LanguageModelToolCallPart) {
+              if (part.name === tool.name) toolInput = part.input;
+            } else if (part instanceof vscode.LanguageModelTextPart) {
+              prose += part.value;
+            }
+          }
+        },
+        (attempt, delay, reason) => this.onRetry?.(attempt, delay, reason)
+      );
     } catch (err) {
       throw translateLmError(err);
     }
@@ -194,6 +211,48 @@ function copilotHint(): string {
   return `Copilot is installed and active (${active.join(', ')}) but exposes no chat model. This usually means you are not signed in to GitHub, or the account has no Copilot Chat entitlement. Check the Copilot status in the status bar, then re-run this command.`;
 }
 
+/**
+ * Transport failures worth retrying.
+ *
+ * These come from the Copilot extension's own network stack, not from the
+ * model — ERR_HTTP2_PROTOCOL_ERROR, a dropped socket, a gateway hiccup. They
+ * say nothing about the request and are usually gone a second later. A refusal
+ * or a permissions failure is not in this set: retrying those just burns quota
+ * to be told the same thing again.
+ */
+const TRANSIENT = /ERR_HTTP2|ERR_NETWORK|ERR_CONNECTION|ERR_TIMED_OUT|ECONNRESET|ETIMEDOUT|EPIPE|socket hang up|network (error|connection)|fetch failed|502|503|504|temporarily unavailable/i;
+
+function isTransient(err: unknown): boolean {
+  if (err instanceof vscode.LanguageModelError) {
+    // A block or a permissions problem will not fix itself.
+    return !['Blocked', 'NoPermissions', 'NotFound'].includes(String(err.code));
+  }
+  return TRANSIENT.test((err as Error)?.message ?? '');
+}
+
+const RETRY_DELAYS_MS = [1000, 3000, 7000];
+
+/** Retries a transient failure, with the reason surfaced so a wait is explicable. */
+async function withRetry<T>(
+  label: string,
+  fn: () => Promise<T>,
+  onRetry?: (attempt: number, delayMs: number, reason: string) => void
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt === RETRY_DELAYS_MS.length || !isTransient(err)) break;
+      const delay = RETRY_DELAYS_MS[attempt];
+      onRetry?.(attempt + 1, delay, (err as Error)?.message ?? String(err));
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastError;
+}
+
 function toCancellationToken(token?: LlmCancellation): vscode.CancellationToken {
   if (token && 'isCancellationRequested' in token) {
     return token as unknown as vscode.CancellationToken;
@@ -230,6 +289,13 @@ function translateLmError(err: unknown): Error {
           err
         );
     }
+  }
+  if (TRANSIENT.test((err as Error)?.message ?? '')) {
+    return new LlmUnavailableError(
+      'Copilot could not be reached.',
+      'This is a network failure between VS Code and GitHub, not a problem with your requirements. ReqForge already retried three times. Check a VPN or corporate proxy, then run it again — nothing was lost.',
+      err
+    );
   }
   return err instanceof Error ? err : new Error(String(err));
 }

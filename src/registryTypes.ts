@@ -14,6 +14,11 @@ export interface AdapterContext {
   /** Full profile only; undefined in the restricted build. */
   anthropicApiKey?: string;
   mcpEndpoint?: string;
+  /**
+   * Called when a request fails transiently and will be retried. Lets the UI
+   * explain a pause rather than appearing to hang.
+   */
+  onLlmRetry?: (attempt: number, delayMs: number, reason: string) => void;
 }
 
 /**

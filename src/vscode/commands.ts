@@ -31,6 +31,8 @@ function store(): BacklogStore {
 
 async function ports(deps: Deps): Promise<{ atlassian: AtlassianPort; llm: LlmPort }> {
   const actx = await adapterContext(deps.ctx);
+  actx.onLlmRetry = (attempt, delayMs, reason) =>
+    deps.out.appendLine(`Copilot request failed (${reason.slice(0, 160)}) — retrying in ${delayMs / 1000}s (attempt ${attempt})`);
   return { atlassian: registry.createAtlassian(actx), llm: registry.createLlm(actx) };
 }
 

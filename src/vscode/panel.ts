@@ -147,6 +147,13 @@ export class BacklogPanel {
 
   private async ports(): Promise<{ atlassian: AtlassianPort; llm: LlmPort }> {
     const actx = await adapterContext(this.ctx);
+    // A transient network failure pauses the run; say so, or the overlay just
+    // sits there and the user assumes it has hung.
+    actx.onLlmRetry = (attempt, delayMs, reason) => {
+      this.out.appendLine(`Copilot request failed (${reason.slice(0, 160)}) — retrying in ${delayMs / 1000}s`);
+      this.busyLabel = `Copilot did not respond. Retrying in ${delayMs / 1000}s (attempt ${attempt} of 3)…`;
+      void this.send();
+    };
     return { atlassian: registry.createAtlassian(actx), llm: registry.createLlm(actx) };
   }
 

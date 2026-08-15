@@ -36,14 +36,14 @@ export const registry: AdapterRegistry = {
   createLlm(ctx: AdapterContext): LlmPort {
     switch (ctx.llmProvider) {
       case 'copilot':
-        return new CopilotLlmAdapter(ctx.modelFamily || undefined);
+        return new CopilotLlmAdapter(ctx.modelFamily || undefined, ctx.onLlmRetry);
       case 'fixture':
         return new FixtureLlmAdapter(ctx.fixtures ?? {});
       default:
         vscode.window.showWarningMessage(
           `LLM provider "${ctx.llmProvider}" is not available in the restricted build. Falling back to Copilot.`
         );
-        return new CopilotLlmAdapter(ctx.modelFamily || undefined);
+        return new CopilotLlmAdapter(ctx.modelFamily || undefined, ctx.onLlmRetry);
     }
   }
 };
