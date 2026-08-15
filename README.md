@@ -169,6 +169,18 @@ affects a marketplace listing. Add one if you ever publish.
 
 **Required-field discovery.** Every Jira instance has a mandatory custom field somebody added in 2019. `requiredFields()` reads `createmeta` and warns up front, turning a mid-demo `400` into a preflight warning.
 
+**The buttons go quiet when there is nothing to do.** Once everything matches what is in Jira,
+"Review & send" reads *All sent to Jira* and is disabled, and "Review quality" reads *Reviewed*.
+Both re-enable the moment something changes, because an item's status is decided by comparing its
+`pushedHash` against its **current** fingerprint — not by whether a `pushedHash` exists. Treating a
+present hash as proof of being up to date marks anything edited after a push as synced, which is
+the one case where sending matters most. `syncStatus()` is in core with tests for exactly that.
+
+The backlog is deliberately **not** deleted after a successful push. It is the record that makes a
+later re-push update rather than duplicate, it holds the hand-edits, and clearing it automatically
+would destroy the only local copy of work — which is a thing that has already happened once here.
+Removing it is a deliberate act, from the home screen.
+
 **Partial failure is saved.** `executePush` saves the backlog file even when some items fail, so the keys already obtained are never lost and the retry does not duplicate.
 
 **Undo covers everything local, and stops at the push.** The host keeps up to 50 snapshots, so Undo reverses generated stories, accepted rewrites and deletions, not just typing — consecutive keystrokes collapse into one step. The history is cleared after a push on purpose: undoing past a push would roll back the Jira keys just recorded, and the next push would then duplicate issues that already exist. Local edits are reversible; sending is not.

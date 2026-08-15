@@ -83,6 +83,26 @@ export function storyFingerprint(story: StoryProposal): string {
 /** Tolerates a hand-edited file that omits an optional list entirely. */
 const list = <T>(value: T[] | undefined): T[] => value ?? [];
 
+export type SyncStatus = 'new' | 'edited' | 'synced';
+
+/**
+ * Whether an item still has something to send.
+ *
+ * The comparison must be against the item's *current* fingerprint. Treating a
+ * present `pushedHash` as "synced" marks anything edited after a push as up to
+ * date, which is exactly the case where sending matters most.
+ */
+export function syncStatus(sync: SyncState, currentHash: string): SyncStatus {
+  if (!sync.jiraKey) return 'new';
+  if (!sync.pushedHash) return 'edited';
+  return sync.pushedHash === currentHash ? 'synced' : 'edited';
+}
+
+/** True when a push would create or update this item. */
+export function isPending(sync: SyncState, currentHash: string): boolean {
+  return syncStatus(sync, currentHash) !== 'synced';
+}
+
 /** Renders an epic to the markdown that becomes its Jira description. */
 export function epicToMarkdown(epic: EpicProposal): string {
   const out: string[] = [];

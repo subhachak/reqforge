@@ -1,6 +1,7 @@
 import { StrictMode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { EpicItem, StoryItem } from '../core/model';
+import type { EpicItem, StoryItem, SyncStatus } from '../core/model';
+import { syncStatus } from '../core/model';
 import type { AcceptanceCriterion } from '../core/schemas';
 import type { CriterionDef, ItemQuality } from '../core/rubric/index';
 import type { HostMessage, PanelState, WebviewMessage } from '../shared/protocol';
@@ -420,11 +421,15 @@ const FILTER_LABEL: Record<ReadinessFilter, string> = {
 
 /* ------------------------------------------------------------------ status */
 
-type Status = 'new' | 'edited' | 'synced';
+type Status = SyncStatus;
 
-function statusOf(item: { sync: { jiraKey?: string; pushedHash?: string } }): Status {
-  if (!item.sync.jiraKey) return 'new';
-  return item.sync.pushedHash ? 'synced' : 'edited';
+/**
+ * `quality.assessedHash` is the item's fingerprint as of this render, so it is
+ * what `pushedHash` must be compared against. Without it an item edited after
+ * a push reads as synced — the one case where sending matters most.
+ */
+function statusOf(item: { sync: { jiraKey?: string; pushedHash?: string } }, quality?: ItemQuality): Status {
+  return syncStatus(item.sync, quality?.assessedHash ?? '');
 }
 
 const STATUS_LABEL: Record<Status, string> = {
@@ -450,7 +455,7 @@ function StoryCard(props: {
   const [open, setOpen] = useState(false);
   const [instruction, setInstruction] = useState('');
   const s = props.story;
-  const status = statusOf(s);
+  const status = statusOf(s, props.quality);
   const patch = (p: Partial<StoryItem>) => props.onChange({ ...s, ...p });
 
   return (
@@ -587,7 +592,7 @@ function EpicDetail(props: {
 }) {
   const e = props.epic;
   const [instruction, setInstruction] = useState('');
-  const status = statusOf(e);
+  const status = statusOf(e, props.quality);
   const patch = (p: Partial<EpicItem>) => props.onChange({ ...e, ...p });
   const points = e.stories.reduce((n, s) => n + s.points, 0);
 
@@ -1347,13 +1352,21 @@ function App() {
 
   const totals = useMemo(() => {
     const stories = epics.flatMap((e) => e.stories);
+    // "Pending" is what a push would create or update — which includes items
+    // already in Jira that have been edited since. Counting only items without
+    // a key understates the work and leaves the button lying about it.
+    const pending = [
+      ...epics.filter((e) => statusOf(e, qualityFor('epic', e.ref)) !== 'synced'),
+      ...stories.filter((s) => statusOf(s, qualityFor('story', s.ref)) !== 'synced')
+    ].length;
     return {
       epics: epics.length,
       stories: stories.length,
       points: stories.reduce((n, s) => n + s.points, 0),
-      unpushed: [...epics, ...stories].filter((i) => !i.sync.jiraKey).length
+      pending,
+      total: epics.length + stories.length
     };
-  }, [epics]);
+  }, [epics, qualityFor]);
 
   /* Chrome shared by every view: the notice banner, busy overlay, and a way
      back to the home screen. Setup deliberately has no escape hatch. */
@@ -1505,18 +1518,33 @@ function App() {
                 : `${state.quality.score} avg · ${state.quality.failed} below`}
             </span>
           )}
-          <button disabled={state.busy} onClick={() => act({ type: 'deepReview' })} title="Rate every item against the rubric">
-            Review quality
+          <button
+            disabled={state.busy || (state.quality?.unassessed ?? 0) === 0}
+            onClick={() => act({ type: 'deepReview' })}
+            title={
+              (state.quality?.unassessed ?? 0) === 0
+                ? 'Every item has been reviewed against the current content. Edit something to re-run, or use Re-review on a single item.'
+                : `Rate ${state.quality?.unassessed} item(s) against the rubric`
+            }
+          >
+            {(state.quality?.unassessed ?? 0) === 0
+              ? 'Reviewed'
+              : `Review quality (${state.quality?.unassessed})`}
           </button>
           <button className="ghost" onClick={() => act({ type: 'navigate', view: 'setup' })}>
             ⚙
           </button>
           <button
-            disabled={state.busy}
+            disabled={state.busy || totals.pending === 0}
             className="primary"
             onClick={() => act({ type: 'previewPush', only: onlyRefs })}
+            title={
+              totals.pending === 0
+                ? `All ${totals.total} items match what is in Jira. Edit something to send again.`
+                : `${totals.pending} item(s) to create or update`
+            }
           >
-            Review &amp; send to Jira{totals.unpushed ? ` (${totals.unpushed})` : ''}
+            {totals.pending === 0 ? 'All sent to Jira' : `Review & send to Jira (${totals.pending})`}
           </button>
         </div>
       </div>
@@ -1600,7 +1628,7 @@ function App() {
           )}
 
           {visibleEpics.map((e) => {
-            const status = statusOf(e);
+            const status = statusOf(e, qualityFor('epic', e.ref));
             return (
               <div
                 key={e.ref}

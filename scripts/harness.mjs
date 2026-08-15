@@ -78,14 +78,28 @@ const SAMPLE = {
 
 const backlog = backlogPath ? deserializeBacklog(readFileSync(backlogPath, 'utf8')) : SAMPLE;
 
-// Give the fixture one of each status so every badge and dot is exercised.
-if (backlog.epics[0]) {
-  backlog.epics[0].sync = { jiraKey: 'DEMO-1', pushedHash: 'abc', pushedAt: new Date().toISOString() };
-  if (backlog.epics[0].stories[0]) {
-    backlog.epics[0].stories[0].sync = { jiraKey: 'DEMO-2', pushedHash: 'stale-hash-so-this-reads-as-edited' };
+// HARNESS_SYNCED=1 marks every item as pushed and current, which is the state
+// after a successful push — the case where the buttons must go quiet.
+if (process.env.HARNESS_SYNCED) {
+  let n = 80;
+  for (const e of backlog.epics) {
+    e.sync = { jiraKey: `KAN-${n++}`, pushedHash: epicFingerprint(e), pushedAt: new Date().toISOString() };
+    for (const st of e.stories) {
+      st.sync = { jiraKey: `KAN-${n++}`, pushedHash: storyFingerprint(st), pushedAt: new Date().toISOString() };
+    }
   }
 }
-if (backlog.epics[1]) backlog.epics[1].sync = { jiraKey: 'DEMO-9' };
+
+// Give the fixture one of each status so every badge and dot is exercised.
+if (!process.env.HARNESS_SYNCED) {
+  if (backlog.epics[0]) {
+    backlog.epics[0].sync = { jiraKey: 'DEMO-1', pushedHash: 'abc', pushedAt: new Date().toISOString() };
+    if (backlog.epics[0].stories[0]) {
+      backlog.epics[0].stories[0].sync = { jiraKey: 'DEMO-2', pushedHash: 'stale-hash-so-this-reads-as-edited' };
+    }
+  }
+  if (backlog.epics[1]) backlog.epics[1].sync = { jiraKey: 'DEMO-9' };
+}
 
 /* A quality fixture covering every visual state: reviewed-good, reviewed-poor,
    blocked, and not-yet-reviewed. */
@@ -106,6 +120,13 @@ function ratingsFor(level, rating) {
 function buildQuality() {
   const cached = new Map();
   const epics = backlog.epics;
+  if (process.env.HARNESS_SYNCED) {
+    for (const e of epics) {
+      cached.set(cacheKey('epic', e.ref, epicFingerprint(e)), ratingsFor('epic', 3));
+      for (const st of e.stories) cached.set(cacheKey('story', st.ref, storyFingerprint(st)), ratingsFor('story', 3));
+    }
+    return evaluateBacklog(backlog, DEFAULT_RUBRIC, cached);
+  }
   if (epics[0]) cached.set(cacheKey('epic', epics[0].ref, epicFingerprint(epics[0])), ratingsFor('epic', 3));
   if (epics[1]) cached.set(cacheKey('epic', epics[1].ref, epicFingerprint(epics[1])), ratingsFor('epic', 1));
   if (epics[2]) cached.set(cacheKey('epic', epics[2].ref, epicFingerprint(epics[2])), ratingsFor('epic', 2));

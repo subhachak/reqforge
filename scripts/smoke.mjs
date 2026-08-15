@@ -20,7 +20,7 @@ writeFileSync(
 export { storageToMarkdown } from '${path.resolve('src/adapters/atlassian/storageFormat.ts')}';
 export { markdownToAdf, adfToMarkdown } from '${path.resolve('src/adapters/atlassian/adf.ts')}';
 export { extractPageId } from '${path.resolve('src/adapters/atlassian/rest.ts')}';
-export { epicToMarkdown, stampLabel, epicFingerprint } from '${path.resolve('src/core/model.ts')}';
+export { epicToMarkdown, stampLabel, epicFingerprint, syncStatus, isPending } from '${path.resolve('src/core/model.ts')}';
 export { serializeBacklog, deserializeBacklog, BacklogStore, backlogPath } from '${path.resolve('src/core/store.ts')}';
 export { loadQuality, saveQuality, deleteQuality, qualityPath } from '${path.resolve('src/core/rubric/store.ts')}';
 export { evaluateBacklog, scoreCriteria, fixInstruction, cacheKey, overrideKey } from '${path.resolve('src/core/rubric/score.ts')}';
@@ -482,6 +482,26 @@ check('a structurally broken item still fails under the defaults',
 check('rubric exposes every rule id for config', m.RULE_IDS.length >= 18 && m.RULE_IDS.includes('generic-persona'));
 check('INVEST is complete and correctly named',
   ['Independent','Negotiable','Valuable','Estimable','Small','Testable'].every((n) => m.STORY_CRITERIA.some((c) => c.name === n)));
+
+/* ------------------------------------------------------------ sync status */
+
+{
+  const hash = m.epicFingerprint(goodEpic);
+  const other = m.epicFingerprint({ ...goodEpic, title: 'Changed' });
+
+  check('sync: no key means new', m.syncStatus({}, hash) === 'new');
+  check('sync: key with a matching hash means synced', m.syncStatus({ jiraKey: 'A-1', pushedHash: hash }, hash) === 'synced');
+  // The regression: a present pushedHash used to be taken as proof of being up
+  // to date, so anything edited after a push showed as synced and was not sent.
+  check('sync: key with a stale hash means edited',
+    m.syncStatus({ jiraKey: 'A-1', pushedHash: other }, hash) === 'edited');
+  check('sync: an adopted issue never pushed from here counts as edited',
+    m.syncStatus({ jiraKey: 'A-1' }, hash) === 'edited');
+
+  check('pending: a synced item is not pending', m.isPending({ jiraKey: 'A-1', pushedHash: hash }, hash) === false);
+  check('pending: an edited item is pending', m.isPending({ jiraKey: 'A-1', pushedHash: other }, hash) === true);
+  check('pending: a new item is pending', m.isPending({}, hash) === true);
+}
 
 /* ------------------------------------------------------- backlog store CRUD */
 

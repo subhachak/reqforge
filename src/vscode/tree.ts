@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { Backlog, EpicItem, StoryItem } from '../core/model';
-import { epicFingerprint, storyFingerprint } from '../core/model';
+import { epicFingerprint, storyFingerprint, syncStatus } from '../core/model';
 import { BacklogStore } from '../core/store';
 import { backlogPath } from '../core/store';
 import { dataFolder } from './config';
@@ -105,11 +105,12 @@ function syncBadge(
   pushedHash: string | undefined,
   currentHash: string
 ): { icon: string; label: string; color?: vscode.ThemeColor } {
-  if (!jiraKey) {
-    return { icon: 'circle-outline', label: 'new', color: new vscode.ThemeColor('charts.blue') };
+  switch (syncStatus({ jiraKey, pushedHash }, currentHash)) {
+    case 'new':
+      return { icon: 'circle-outline', label: 'new', color: new vscode.ThemeColor('charts.blue') };
+    case 'edited':
+      return { icon: 'circle-filled', label: 'edited', color: new vscode.ThemeColor('charts.yellow') };
+    default:
+      return { icon: 'check', label: 'synced', color: new vscode.ThemeColor('charts.green') };
   }
-  if (pushedHash !== currentHash) {
-    return { icon: 'circle-filled', label: 'edited', color: new vscode.ThemeColor('charts.yellow') };
-  }
-  return { icon: 'check', label: 'synced', color: new vscode.ThemeColor('charts.green') };
 }
