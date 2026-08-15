@@ -22,6 +22,10 @@ export { markdownToAdf, adfToMarkdown } from '${path.resolve('src/adapters/atlas
 export { extractPageId } from '${path.resolve('src/adapters/atlassian/rest.ts')}';
 export { epicToMarkdown, stampLabel, epicFingerprint } from '${path.resolve('src/core/model.ts')}';
 export { serializeBacklog, deserializeBacklog } from '${path.resolve('src/core/store.ts')}';
+export { evaluateBacklog, scoreCriteria, fixInstruction, cacheKey } from '${path.resolve('src/core/rubric/score.ts')}';
+export { DEFAULT_RUBRIC } from '${path.resolve('src/core/rubric/types.ts')}';
+export { RULE_IDS } from '${path.resolve('src/core/rubric/rules.ts')}';
+export { STORY_CRITERIA, EPIC_CRITERIA } from '${path.resolve('src/core/rubric/criteria.ts')}';
 `
 );
 
@@ -244,6 +248,152 @@ try {
   msg = err.message;
 }
 check('invalid field is reported with its path', msg.includes('epics.0.ref'), msg);
+
+/* ------------------------------------------------------------------ rubric */
+
+const goodStory = {
+  ref: 'good-story',
+  epicRef: 'good',
+  title: 'Show saved cards at checkout',
+  narrative: {
+    asA: 'returning shopper',
+    iWant: 'to see the cards I have saved',
+    soThat: 'I can complete payment without finding my wallet'
+  },
+  description: '',
+  acceptanceCriteria: [{ given: 'a shopper with two saved cards', when: 'the checkout page loads', then: 'both cards are listed' }],
+  points: 3,
+  openQuestions: [],
+  sync: {}
+};
+
+const goodEpic = {
+  ref: 'good',
+  title: 'Saved cards at checkout',
+  outcome: 'Returning shoppers pay without re-entering card details',
+  description: 'Body.',
+  inScope: ['iOS Safari'],
+  outOfScope: ['Android'],
+  acceptanceCriteria: [{ given: 'a saved card', when: 'the shopper checks out', then: 'no re-entry is required' }],
+  dependsOn: [],
+  sizing: 'M',
+  openQuestions: [],
+  sourceEvidence: ['reduce checkout friction'],
+  sync: {},
+  stories: [goodStory]
+};
+
+const backlogOf = (epics) => ({
+  version: 1,
+  source: { kind: 'confluence', pageId: '1', title: 'T', url: 'u', ingestedAt: 'now' },
+  target: { projectKey: 'ACME', epicIssueType: 'Epic', storyIssueType: 'Story' },
+  prd: { title: 'T', summary: 's', goals: [], nonGoals: [], personas: [], constraints: [], openQuestions: [], risks: [] },
+  epics
+});
+
+const findingsFor = (backlog, ref) => {
+  const q = m.evaluateBacklog(backlog, m.DEFAULT_RUBRIC);
+  const item = q.items.find((i) => i.ref === ref);
+  return [...item.blockedBy, ...item.warnings].map((f) => f.ruleId);
+};
+
+check('rubric: a clean epic produces no blockers or warnings', (() => {
+  const ids = findingsFor(backlogOf([goodEpic]), 'good');
+  return ids.length === 0;
+})(), JSON.stringify(findingsFor(backlogOf([goodEpic]), 'good')));
+
+check('rubric: a clean story produces no blockers or warnings',
+  findingsFor(backlogOf([goodEpic]), 'good-story').length === 0,
+  JSON.stringify(findingsFor(backlogOf([goodEpic]), 'good-story')));
+
+// Each of these must fire, or the rule is dead code.
+const epicCases = [
+  ['has-outcome', { ...goodEpic, outcome: '  ' }],
+  ['has-acceptance-criteria', { ...goodEpic, acceptanceCriteria: [] }],
+  ['complete-acceptance-criteria', { ...goodEpic, acceptanceCriteria: [{ given: 'x', when: '', then: 'y' }] }],
+  ['dependencies-resolve', { ...goodEpic, dependsOn: ['nope'] }],
+  ['no-self-dependency', { ...goodEpic, dependsOn: ['good'] }],
+  ['has-evidence', { ...goodEpic, sourceEvidence: [] }],
+  ['has-out-of-scope', { ...goodEpic, outOfScope: [] }],
+  ['sizing-xl', { ...goodEpic, sizing: 'XL' }],
+  ['no-stories', { ...goodEpic, stories: [] }],
+  ['layer-shaped', { ...goodEpic, title: 'The payments API' }],
+  ['vague-acceptance-criteria', { ...goodEpic, acceptanceCriteria: [{ given: 'a card', when: 'it is used', then: 'it works properly' }] }],
+  ['too-many-stories', { ...goodEpic, stories: Array.from({ length: 13 }, (_, i) => ({ ...goodStory, ref: `s${i}` })) }]
+];
+
+for (const [ruleId, epic] of epicCases) {
+  const ids = findingsFor(backlogOf([epic]), 'good');
+  check(`rubric rule fires: ${ruleId}`, ids.includes(ruleId), `got: ${ids.join(', ') || '(none)'}`);
+}
+
+const storyCases = [
+  ['has-narrative', { ...goodStory, narrative: { ...goodStory.narrative, soThat: '' } }],
+  ['has-acceptance-criteria', { ...goodStory, acceptanceCriteria: [] }],
+  ['generic-persona', { ...goodStory, narrative: { ...goodStory.narrative, asA: 'user' } }],
+  ['too-large', { ...goodStory, points: 13 }],
+  ['vague-acceptance-criteria', { ...goodStory, acceptanceCriteria: [{ given: 'a', when: 'b', then: 'it is user-friendly' }] }],
+  ['benefit-restates-want', { ...goodStory, narrative: { asA: 'shopper', iWant: 'to see saved cards listed', soThat: 'saved cards are listed' } }]
+];
+
+for (const [ruleId, story] of storyCases) {
+  const ids = findingsFor(backlogOf([{ ...goodEpic, stories: [story] }]), 'good-story');
+  check(`rubric rule fires: ${ruleId} (story)`, ids.includes(ruleId), `got: ${ids.join(', ') || '(none)'}`);
+}
+
+/* scoring and gating */
+
+const allThrees = m.STORY_CRITERIA.map((c) => ({ id: c.id, rating: 3, justification: 'x', suggestion: '' }));
+const allZeros = m.STORY_CRITERIA.map((c) => ({ id: c.id, rating: 0, justification: 'x', suggestion: '' }));
+
+check('score: all 3s is 100', m.scoreCriteria('story', allThrees, m.DEFAULT_RUBRIC) === 100);
+check('score: all 0s is 0', m.scoreCriteria('story', allZeros, m.DEFAULT_RUBRIC) === 0);
+check(
+  'score: disabling a criterion does not cap the maximum',
+  m.scoreCriteria('story', allThrees.filter((c) => c.id !== 'invest-testable'), {
+    ...m.DEFAULT_RUBRIC,
+    weights: { 'invest-testable': 0 }
+  }) === 100
+);
+check(
+  'score: unassessed criteria are excluded, not counted as zero',
+  m.scoreCriteria('story', allThrees.slice(0, 2), m.DEFAULT_RUBRIC) === 100
+);
+check(
+  'score: weighting Testable higher lowers the score when only Testable is poor',
+  m.scoreCriteria('story', m.STORY_CRITERIA.map((c) => ({ id: c.id, rating: c.id === 'invest-testable' ? 0 : 3, justification: 'x', suggestion: '' })), m.DEFAULT_RUBRIC) < 80
+);
+
+// The gate: a blocker must fail an item no matter how well it scores.
+const blocked = backlogOf([{ ...goodEpic, acceptanceCriteria: [] }]);
+const cached = new Map([[m.cacheKey('epic', 'good', m.epicFingerprint({ ...goodEpic, acceptanceCriteria: [] })), m.EPIC_CRITERIA.map((c) => ({ id: c.id, rating: 3, justification: 'x', suggestion: '' }))]]);
+const blockedQ = m.evaluateBacklog(blocked, m.DEFAULT_RUBRIC, cached);
+const blockedItem = blockedQ.items.find((i) => i.ref === 'good');
+check('gate: a perfect score still fails when a blocker fired', blockedItem.score === 100 && blockedItem.passed === false);
+
+const cleanCached = new Map([[m.cacheKey('epic', 'good', m.epicFingerprint(goodEpic)), m.EPIC_CRITERIA.map((c) => ({ id: c.id, rating: 3, justification: 'x', suggestion: '' }))]]);
+const cleanItem = m.evaluateBacklog(backlogOf([goodEpic]), m.DEFAULT_RUBRIC, cleanCached).items.find((i) => i.ref === 'good');
+check('gate: a clean item at 100 passes', cleanItem.passed === true);
+
+const lowCached = new Map([[m.cacheKey('epic', 'good', m.epicFingerprint(goodEpic)), m.EPIC_CRITERIA.map((c) => ({ id: c.id, rating: 1, justification: 'x', suggestion: '' }))]]);
+const lowItem = m.evaluateBacklog(backlogOf([goodEpic]), m.DEFAULT_RUBRIC, lowCached).items.find((i) => i.ref === 'good');
+check('gate: below threshold fails', lowItem.score < 70 && lowItem.passed === false);
+
+check('gate: an unassessed item is not treated as passing', cleanItem.deterministicOnly === false &&
+  m.evaluateBacklog(backlogOf([goodEpic]), m.DEFAULT_RUBRIC).items.find((i) => i.ref === 'good').passed === false);
+
+// Editing an item must invalidate its cached assessment.
+const edited = { ...goodEpic, title: 'A different title' };
+const staleItem = m.evaluateBacklog(backlogOf([edited]), m.DEFAULT_RUBRIC, cleanCached).items.find((i) => i.ref === 'good');
+check('cache: editing an item invalidates its assessment', staleItem.deterministicOnly === true);
+
+check('fix instruction names the actual problems',
+  m.fixInstruction(blockedItem).includes('No acceptance criteria'),
+  m.fixInstruction(blockedItem));
+
+check('rubric exposes every rule id for config', m.RULE_IDS.length >= 18 && m.RULE_IDS.includes('generic-persona'));
+check('INVEST is complete and correctly named',
+  ['Independent','Negotiable','Valuable','Estimable','Small','Testable'].every((n) => m.STORY_CRITERIA.some((c) => c.name === n)));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
