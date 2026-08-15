@@ -102,6 +102,7 @@ export function parseEpicMarkdown(key: string, summary: string, markdown: string
     acceptanceCriteria: criteria(sections.get('acceptance criteria')),
     nonFunctional: bullets(sections.get('non-functional requirements')),
     assumptions: bullets(sections.get('assumptions')),
+    links: links(sections.get('links')),
     dependsOn: bullets(sections.get('depends on')),
     sizing: (sizingMatch?.[1]?.toUpperCase() as EpicProposal['sizing']) ?? 'M',
     openQuestions: bullets(sections.get('open questions')),
@@ -128,6 +129,23 @@ function narrativeFrom(text: string): { asA: string; iWant: string; soThat: stri
     return text.match(re)?.[1]?.trim() ?? '';
   };
   return { asA: grab('As a'), iWant: grab('I want'), soThat: grab('So that') };
+}
+
+const LINK_LINE = /^[-*]\s*(Design|Spec|Reference)\s*:\s*\[([^\]]*)\]\(([^)]+)\)\s*$/i;
+
+function links(lines: string[] | undefined): { type: 'design' | 'spec' | 'reference'; label: string; url: string }[] {
+  const out: { type: 'design' | 'spec' | 'reference'; label: string; url: string }[] = [];
+  for (const line of lines ?? []) {
+    const m = line.trim().match(LINK_LINE);
+    if (m) {
+      out.push({ type: m[1].toLowerCase() as 'design' | 'spec' | 'reference', label: m[2].trim(), url: m[3].trim() });
+      continue;
+    }
+    // A bare markdown link under the heading is still a link somebody added.
+    const bare = line.trim().match(/^[-*]\s*\[([^\]]*)\]\(([^)]+)\)\s*$/);
+    if (bare) out.push({ type: 'reference', label: bare[1].trim(), url: bare[2].trim() });
+  }
+  return out;
 }
 
 const PRIORITIES = ['Must', 'Should', 'Could'] as const;
@@ -171,6 +189,7 @@ export function parseStoryMarkdown(
     acceptanceCriteria: parsedCriteria.length > 0 ? parsedCriteria : [{ given: '', when: '', then: '' }],
     assumptions: bullets(sections.get('assumptions')),
     dependsOn: bullets(sections.get('depends on')),
+    links: links(sections.get('links')),
     points: (POINTS.has(rawPoints) ? rawPoints : 3) as StoryProposal['points'],
     openQuestions: bullets(sections.get('open questions'))
   };

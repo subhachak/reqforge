@@ -53,6 +53,7 @@ export function proposeEpicsPrompt(skeleton: PrdSkeleton, markdown: string): str
     '- Non-functional requirements that apply to this epic, quoting the document\'s figures.',
     '- Assumptions being made in order to proceed. An assumption is a decision; an open question is unresolved. Do not put the same thing in both.',
     '- Priority in MoSCoW terms, following the document where it states one.',
+    '- Any links the document already gives for this scope — a design file, a spec, a decision record. Copy the URL verbatim and never invent one.',
     '',
     'Avoid:',
     '- Layer-shaped epics ("build the database", "build the API", "build the UI"). Slice by outcome.',

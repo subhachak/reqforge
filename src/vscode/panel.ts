@@ -605,7 +605,7 @@ export class BacklogPanel {
         return;
 
       case 'openExternal':
-        await vscode.env.openExternal(vscode.Uri.parse(msg.url));
+        await this.openExternal(msg.url);
         return;
 
       case 'addEpic': {
@@ -625,6 +625,7 @@ export class BacklogPanel {
           assumptions: [],
           acceptanceCriteria: [],
           dependsOn: [],
+          links: [],
           sizing: 'M',
           openQuestions: [],
           sourceEvidence: [],
@@ -650,6 +651,7 @@ export class BacklogPanel {
           acceptanceCriteria: [{ given: '', when: '', then: '' }],
           assumptions: [],
           dependsOn: [],
+          links: [],
           points: 3,
           openQuestions: [],
           sync: {}
@@ -735,6 +737,38 @@ export class BacklogPanel {
 
     this.notice = { kind: 'info', message: `Removed "${title}" from this machine.` };
     await this.send();
+  }
+
+  /**
+   * Opens a link from the panel.
+   *
+   * URLs in a backlog reach us from Jira and from git, so they are somebody
+   * else's input. `openExternal` will act on a `command:` URI, which would let
+   * a crafted issue description run a VS Code command; `file:` would open
+   * arbitrary local paths. Only http and https are followed, and anything else
+   * is reported rather than silently ignored.
+   */
+  private async openExternal(raw: string) {
+    let uri: vscode.Uri;
+    try {
+      uri = vscode.Uri.parse(raw, true);
+    } catch {
+      this.notice = { kind: 'warn', message: `That is not a valid link: ${raw.slice(0, 80)}` };
+      await this.send();
+      return;
+    }
+
+    if (uri.scheme !== 'http' && uri.scheme !== 'https') {
+      this.notice = {
+        kind: 'warn',
+        message: `Refused to open a "${uri.scheme}:" link.`,
+        hint: 'Only http and https links are opened. Links in a backlog can come from Jira or from a colleague.'
+      };
+      await this.send();
+      return;
+    }
+
+    await vscode.env.openExternal(uri);
   }
 
   /* ----------------------------------------------------------------- setup */

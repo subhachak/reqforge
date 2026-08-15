@@ -11,6 +11,21 @@ export const AcceptanceCriterionSchema = z.object({
   then: z.string().min(1)
 });
 
+/**
+ * A link out to something that is not a requirement: a design, a spec, a
+ * decision record.
+ *
+ * Typed rather than a bare url field per tool. A `figmaUrl` field would need a
+ * schema change through eight files the first time somebody wants to attach a
+ * Miro board, and a `type` costs nothing while letting the editor and the
+ * rubric treat a design differently from a reference.
+ */
+export const ItemLinkSchema = z.object({
+  type: z.enum(['design', 'spec', 'reference']).default('reference'),
+  label: z.string().default(''),
+  url: z.string()
+});
+
 /** MoSCoW, because that is what requirements documents already use. */
 export const PrioritySchema = z.enum(['Must', 'Should', 'Could']).default('Should');
 
@@ -39,6 +54,7 @@ export const EpicProposalSchema = z.object({
   nonFunctional: z.array(z.string()).default([]),
   /** Decisions taken in order to proceed. Distinct from an unresolved question. */
   assumptions: z.array(z.string()).default([]),
+  links: z.array(ItemLinkSchema).default([]),
   dependsOn: z.array(z.string()).default([]).describe('refs of other epics this one depends on'),
   sizing: z.enum(['S', 'M', 'L', 'XL']).default('M'),
   openQuestions: z.array(z.string()).default([]),
@@ -76,6 +92,7 @@ export const StoryProposalSchema = z.object({
    * there has to be somewhere to record the dependency being judged.
    */
   dependsOn: z.array(z.string()).default([]),
+  links: z.array(ItemLinkSchema).default([]),
   points: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(5), z.literal(8), z.literal(13)]).default(3),
   openQuestions: z.array(z.string()).default([])
 });
@@ -162,4 +179,5 @@ export type EpicProposal = z.infer<typeof EpicProposalSchema>;
 export type StoryProposal = z.infer<typeof StoryProposalSchema>;
 export type PrdSkeleton = z.infer<typeof PrdSkeletonSchema>;
 export type Priority = z.infer<typeof PrioritySchema>;
+export type ItemLink = z.infer<typeof ItemLinkSchema>;
 export type Critique = z.infer<typeof CritiqueSchema>;

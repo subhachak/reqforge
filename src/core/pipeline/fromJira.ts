@@ -113,6 +113,7 @@ async function storyBacklog(
         assumptions: [],
         acceptanceCriteria: [],
         dependsOn: [],
+        links: [],
         sizing: 'M',
         openQuestions: [],
         sourceEvidence: [],

@@ -227,6 +227,7 @@ of truth for both.
 | Boundaries | inScope, outOfScope | — |
 | Evidence | successMeasures, acceptanceCriteria, sourceEvidence | acceptanceCriteria |
 | Constraints | nonFunctional, assumptions, dependsOn | assumptions, dependsOn |
+| Elsewhere | links (design / spec / reference) | links (design / spec / reference) |
 | Unknowns | openQuestions | openQuestions |
 
 **Adding a field touches eight files**, and missing one fails quietly rather than loudly:
@@ -243,6 +244,22 @@ of truth for both.
 
 Every field also costs prompt tokens on every call and another thing a product owner has to read,
 which is the argument for adding few.
+
+**Links** are typed — `design`, `spec`, `reference` — rather than a `figmaUrl` field. A named field
+per tool means a schema change through all eight files the first time somebody wants to attach a
+Miro board, and the type costs nothing while letting the editor and the rubric treat a design
+differently from a reference. They render as ordinary markdown links, so they survive the ADF round
+trip on the existing link mark.
+
+URLs in a backlog arrive from Jira and from git, so they are somebody else's input. The host only
+follows `http` and `https`: `openExternal` will act on a `command:` URI, which would let a crafted
+issue description run a VS Code command, and `file:` would open arbitrary local paths. Anything
+else is refused with a message rather than ignored.
+
+**Next step for links, not yet done:** push them as Jira *remote issue links* rather than only
+rendering them in the description. Jira shows those in the issue's own Links section, and the API
+takes a `globalId`, which gives the same update-rather-than-duplicate behaviour the stamp labels
+already provide. It costs one extra call per item, which is why it is staged rather than in.
 
 **Known gap:** `priority` and `points` are rendered into the description, not written to Jira's own
 priority and story-point fields. Both need per-instance field discovery, since the story-point

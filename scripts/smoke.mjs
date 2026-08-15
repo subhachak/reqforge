@@ -615,6 +615,38 @@ check('INVEST is complete and correctly named',
   const depBack = m.parseStoryMarkdown('K-3', withDeps.title, viaJira(m.storyToMarkdown(withDeps)), 'e');
   check('story dependencies survive', depBack.dependsOn.join('|') === 'other-story|another-story', depBack.dependsOn.join('|'));
 
+  // Links must survive rendering into Jira and being read back.
+  const withLinks = {
+    ...goodEpic,
+    links: [
+      { type: 'design', label: 'Checkout flow', url: 'https://www.figma.com/file/abc/checkout' },
+      { type: 'spec', label: 'Tokenisation spec', url: 'https://example.com/spec' }
+    ]
+  };
+  const linkBack = m.parseEpicMarkdown('K-9', withLinks.title, viaJira(m.epicToMarkdown(withLinks)));
+  check('links survive the round trip', linkBack.links.length === 2, JSON.stringify(linkBack.links));
+  check('link type survives', linkBack.links[0].type === 'design', linkBack.links[0]?.type);
+  check('link label survives', linkBack.links[0].label === 'Checkout flow', linkBack.links[0]?.label);
+  check('link url survives', linkBack.links[0].url === 'https://www.figma.com/file/abc/checkout', linkBack.links[0]?.url);
+
+  const storyLinks = { ...goodStory, links: [{ type: 'design', label: 'Frame 12', url: 'https://www.figma.com/file/x' }] };
+  const storyBack = m.parseStoryMarkdown('K-10', storyLinks.title, viaJira(m.storyToMarkdown(storyLinks)), 'e');
+  check('story links survive the round trip', storyBack.links.length === 1 && storyBack.links[0].label === 'Frame 12',
+    JSON.stringify(storyBack.links));
+
+  // A bare markdown link under the heading is somebody's work; keep it.
+  const bare = m.parseEpicMarkdown('K-11', 'x', '## Links\n- [Some doc](https://example.com/doc)');
+  check('a bare link under the heading is kept', bare.links.length === 1 && bare.links[0].type === 'reference');
+
+  check('a non-https link is reported',
+    m.evaluateBacklog(backlogOf([{ ...goodEpic, links: [{ type: 'design', label: 'x', url: 'http://insecure' }] }]), m.DEFAULT_RUBRIC)
+      .items.find((i) => i.ref === 'good').warnings.some((f) => f.ruleId === 'insecure-link'));
+  check('an https link is not reported',
+    m.evaluateBacklog(backlogOf([withLinks]), m.DEFAULT_RUBRIC)
+      .items.find((i) => i.ref === 'good').warnings.every((f) => f.ruleId !== 'insecure-link'));
+  check('changing a link changes the fingerprint',
+    m.epicFingerprint(goodEpic) !== m.epicFingerprint(withLinks));
+
   // Editing a new field must count as something worth sending.
   check('changing priority changes the epic fingerprint',
     m.epicFingerprint(goodEpic) !== m.epicFingerprint({ ...goodEpic, priority: 'Could' }));

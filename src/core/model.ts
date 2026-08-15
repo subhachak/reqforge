@@ -1,4 +1,4 @@
-import type { EpicProposal, PrdSkeleton, StoryProposal } from './schemas';
+import type { EpicProposal, ItemLink, PrdSkeleton, StoryProposal } from './schemas';
 
 /** What we know about an item's existence in Jira. */
 export interface SyncState {
@@ -74,7 +74,8 @@ export function epicFingerprint(epic: EpicProposal): string {
     priority: epic.priority,
     successMeasures: epic.successMeasures,
     nonFunctional: epic.nonFunctional,
-    assumptions: epic.assumptions
+    assumptions: epic.assumptions,
+    links: epic.links
   });
 }
 
@@ -87,8 +88,25 @@ export function storyFingerprint(story: StoryProposal): string {
     points: story.points,
     priority: story.priority,
     assumptions: story.assumptions,
-    dependsOn: story.dependsOn
+    dependsOn: story.dependsOn,
+    links: story.links
   });
+}
+
+const LINK_TYPE_LABEL: Record<ItemLink['type'], string> = {
+  design: 'Design',
+  spec: 'Spec',
+  reference: 'Reference'
+};
+
+/** Rendered as ordinary markdown links, which survive the ADF round trip. */
+function linkLines(links: ItemLink[] | undefined): string[] {
+  if (!links?.length) return [];
+  return [
+    '## Links',
+    ...links.map((l) => `- ${LINK_TYPE_LABEL[l.type] ?? 'Reference'}: [${l.label || l.url}](${l.url})`),
+    ''
+  ];
 }
 
 /** Tolerates a hand-edited file that omits an optional list entirely. */
@@ -140,6 +158,7 @@ export function epicToMarkdown(epic: EpicProposal): string {
   if (list(epic.assumptions).length) {
     out.push('## Assumptions', ...epic.assumptions.map((a) => `- ${a}`), '');
   }
+  out.push(...linkLines(epic.links));
   if (list(epic.dependsOn).length) {
     out.push('## Depends on', ...epic.dependsOn.map((d) => `- ${d}`), '');
   }
@@ -173,6 +192,7 @@ export function storyToMarkdown(story: StoryProposal): string {
   if (list(story.assumptions).length) {
     out.push('## Assumptions', ...story.assumptions.map((a) => `- ${a}`), '');
   }
+  out.push(...linkLines(story.links));
   if (list(story.dependsOn).length) {
     out.push('## Depends on', ...story.dependsOn.map((d) => `- ${d}`), '');
   }

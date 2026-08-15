@@ -186,6 +186,15 @@ const EPIC_RULES: Rule<EpicItem>[] = [
     }
   },
   {
+    id: 'insecure-link',
+    severity: 'warn',
+    field: 'links',
+    check: (item: { links?: { url: string }[] }) => {
+      const bad = (item.links ?? []).filter((l) => !/^https:\/\//i.test(l.url.trim()));
+      return bad.length ? `${bad.length} link(s) are not https, so they may not open.` : undefined;
+    }
+  },
+  {
     id: 'unresolved-questions',
     severity: 'info',
     field: 'openQuestions',
@@ -290,6 +299,15 @@ const STORY_RULES: Rule<StoryItem>[] = [
     check: (s) => {
       const n = s.acceptanceCriteria.filter((ac) => / and .* and /i.test(ac.then)).length;
       return n ? `${n} criterion(s) chain several outcomes with "and" — split them.` : undefined;
+    }
+  },
+  {
+    id: 'insecure-link',
+    severity: 'warn',
+    field: 'links',
+    check: (item: { links?: { url: string }[] }) => {
+      const bad = (item.links ?? []).filter((l) => !/^https:\/\//i.test(l.url.trim()));
+      return bad.length ? `${bad.length} link(s) are not https, so they may not open.` : undefined;
     }
   },
   {

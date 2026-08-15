@@ -105,6 +105,20 @@ export const EPICS_SCHEMA = {
             description: 'Explicit exclusions. Prevents scope drift during refinement.'
           },
           acceptanceCriteria,
+          links: {
+            type: 'array',
+            description:
+              'Links the source document already contains for this scope — a design file, a technical spec, a decision record. Only include a URL that appears in the document. Never invent one.',
+            items: {
+              type: 'object',
+              properties: {
+                type: { type: 'string', enum: ['design', 'spec', 'reference'] },
+                label: { type: 'string', description: 'What is at the other end, e.g. "Checkout flow".' },
+                url: { type: 'string', description: 'An https URL taken verbatim from the document.' }
+              },
+              required: ['type', 'label', 'url']
+            }
+          },
           dependsOn: {
             type: 'array',
             items: { type: 'string' },
@@ -164,6 +178,20 @@ export const STORIES_SCHEMA = {
             items: { type: 'string' },
             description:
               'refs of other stories that must land first. Leave empty wherever you can — a story that depends on nothing is worth more than one that does.'
+          },
+          links: {
+            type: 'array',
+            description:
+              'Links the source document already contains for this scope — a design file, a technical spec, a decision record. Only include a URL that appears in the document. Never invent one.',
+            items: {
+              type: 'object',
+              properties: {
+                type: { type: 'string', enum: ['design', 'spec', 'reference'] },
+                label: { type: 'string', description: 'What is at the other end, e.g. "Checkout flow".' },
+                url: { type: 'string', description: 'An https URL taken verbatim from the document.' }
+              },
+              required: ['type', 'label', 'url']
+            }
           },
           points: { type: 'number', enum: [1, 2, 3, 5, 8, 13] },
           openQuestions: { type: 'array', items: { type: 'string' } }

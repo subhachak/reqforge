@@ -137,6 +137,68 @@ function Field(props: { label: string; hint?: string; name?: string; children: R
   );
 }
 
+const LINK_TYPES = ['design', 'spec', 'reference'] as const;
+type LinkType = (typeof LINK_TYPES)[number];
+interface ItemLinkView {
+  type: LinkType;
+  label: string;
+  url: string;
+}
+
+function LinkEditor(props: { items: ItemLinkView[]; onChange: (v: ItemLinkView[]) => void }) {
+  const set = (i: number, patch: Partial<ItemLinkView>) =>
+    props.onChange(props.items.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+
+  return (
+    <>
+      {props.items.map((link, i) => {
+        const openable = /^https?:\/\//i.test(link.url.trim());
+        return (
+          <div className="row" key={i}>
+            <select
+              style={{ width: 110, flex: 'none' }}
+              value={link.type}
+              onChange={(e) => set(i, { type: e.target.value as LinkType })}
+            >
+              {LINK_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <input
+              style={{ flex: 1 }}
+              value={link.label}
+              placeholder="What is at the other end"
+              onChange={(e) => set(i, { label: e.target.value })}
+            />
+            <input
+              style={{ flex: 2 }}
+              value={link.url}
+              placeholder="https://www.figma.com/file/…"
+              onChange={(e) => set(i, { url: e.target.value })}
+            />
+            <button
+              className="ghost"
+              disabled={!openable}
+              title={openable ? 'Open' : 'Only http and https links can be opened'}
+              onClick={() => post({ type: 'openExternal', url: link.url })}
+            >
+              ↗
+            </button>
+            <button className="ghost danger" title="Remove" onClick={() => props.onChange(props.items.filter((_, j) => j !== i))}>
+              ✕
+            </button>
+          </div>
+        );
+      })}
+      <button className="ghost" onClick={() => props.onChange([...props.items, { type: 'design', label: '', url: '' }])}>
+        + Add link
+      </button>
+    </>
+  );
+}
+
 function ListEditor(props: { items: string[]; onChange: (v: string[]) => void; placeholder: string; addLabel: string }) {
   const set = (i: number, v: string) => props.onChange(props.items.map((x, j) => (j === i ? v : x)));
   return (
@@ -548,6 +610,10 @@ function StoryCard(props: {
             />
           </Field>
 
+          <Field label="Links" hint="the design frame or spec for this story" name="links">
+            <LinkEditor items={(s.links ?? []) as ItemLinkView[]} onChange={(v) => patch({ links: v })} />
+          </Field>
+
           <Field label="Depends on" hint="other stories that must land first — fewer is better" name="dependsOn">
             <ListEditor
               items={s.dependsOn ?? []}
@@ -737,6 +803,10 @@ function EpicDetail(props: {
           placeholder="e.g. dashboard interactive within 2s at the 95th percentile"
           addLabel="Add requirement"
         />
+      </Field>
+
+      <Field label="Links" hint="design files, specs, decision records" name="links">
+        <LinkEditor items={(e.links ?? []) as ItemLinkView[]} onChange={(v) => patch({ links: v })} />
       </Field>
 
       <Field label="Assumptions" hint="taken as true in order to proceed — not the same as an open question" name="assumptions">
