@@ -336,6 +336,8 @@ explaining:
   size, child count, points, and the issue key. Moving that metadata out of the prose is most of
   what makes it read as an issue rather than a form.
 - Fields look like text and reveal their box on hover, the way Jira's inline editing does.
+- Two columns only. There is no epic list beside the issue, because the list view is the
+  navigation — a second list inside the editor was a third place to look for the same thing.
 - Below 900px the sidebar drops under the content instead of both being squeezed.
 
 The "Ask for a change" box sits at the foot of the issue, where a comment box would be — which is
@@ -374,6 +376,10 @@ the header toggles back.
 one of those already exists on every item, so five useful views cost barely more than one, and
 they work on backlogs generated before the dashboard existed. No `category` field to maintain and
 nothing new for the model to fill.
+
+**Filters compose.** A state chip, a title search, epics-or-stories and priority all narrow the
+same list, and one control clears them together. Search matters most past about thirty rows, where
+scanning stops working.
 
 **The counts along the top are filters.** Clicking *"8 below 70"* narrows the list to exactly
 those; *select all shown* then gives you the set. That is the three-click path to "improve

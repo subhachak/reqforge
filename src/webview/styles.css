@@ -493,3 +493,4 @@ pre.readonly {
   .issue { flex-direction: column; }
   .issue-side { width: 100%; }
 }
+.dash-search { width: 200px; }

@@ -595,6 +595,9 @@ function Dashboard(props: {
   const [by, setBy] = useState<GroupBy>('epic');
   const [filter, setFilter] = useState<PendingFilter>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState('');
+  const [level, setLevel] = useState<'all' | 'epic' | 'story'>('all');
+  const [priority, setPriority] = useState<'all' | 'Must' | 'Should' | 'Could'>('all');
 
   const epicTitles = useMemo(() => new Map(epics.map((e) => [e.ref, e.title || 'Untitled epic'])), [epics]);
 
@@ -644,7 +647,21 @@ function Dashboard(props: {
     [rows]
   );
 
-  const visible = useMemo(() => rows.filter((r) => matchesFilter(r, filter)), [rows, filter]);
+  /**
+   * Filters compose rather than replacing each other: a state chip, a level, a
+   * priority and a search term all narrow the same list. Searching is the one
+   * that matters most past about thirty items, where scanning stops working.
+   */
+  const visible = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return rows.filter(
+      (r) =>
+        matchesFilter(r, filter) &&
+        (level === 'all' || r.level === level) &&
+        (priority === 'all' || r.priority === priority) &&
+        (!term || r.title.toLowerCase().includes(term))
+    );
+  }, [rows, filter, level, priority, search]);
 
   const groups = useMemo(() => {
     const map = new Map<string, Row[]>();
@@ -723,15 +740,52 @@ function Dashboard(props: {
           {chip('blocked', 'missing something', counts.blocked)}
           {chip('not-sent', 'not sent', counts['not-sent'])}
           {chip('no-stories', 'without stories', counts['no-stories'])}
-          {filter !== 'all' && (
-            <button className="ghost" onClick={() => setFilter('all')}>
-              clear filter
+          {(filter !== 'all' || level !== 'all' || priority !== 'all' || search) && (
+            <button
+              className="ghost"
+              onClick={() => {
+                setFilter('all');
+                setLevel('all');
+                setPriority('all');
+                setSearch('');
+              }}
+            >
+              clear filters
             </button>
           )}
         </div>
       </div>
 
       <div className="dash-controls">
+        <input
+          className="dash-search"
+          value={search}
+          placeholder="Search titles…"
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <select
+          style={{ width: 110 }}
+          value={level}
+          title="Show epics, stories, or both"
+          onChange={(e) => setLevel(e.target.value as 'all' | 'epic' | 'story')}
+        >
+          <option value="all">Everything</option>
+          <option value="epic">Epics</option>
+          <option value="story">Stories</option>
+        </select>
+        <select
+          style={{ width: 130 }}
+          value={priority}
+          title="Filter by priority"
+          onChange={(e) => setPriority(e.target.value as 'all' | 'Must' | 'Should' | 'Could')}
+        >
+          <option value="all">Any priority</option>
+          {PRIORITIES.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
         <label style={{ color: 'var(--muted)', fontSize: 12 }}>Group by</label>
         <select style={{ width: 170 }} value={by} onChange={(e) => setBy(e.target.value as GroupBy)}>
           {(Object.keys(GROUP_LABEL) as GroupBy[]).map((g) => (
@@ -749,7 +803,11 @@ function Dashboard(props: {
         </button>
       </div>
 
-      {groups.length === 0 && <p style={{ color: 'var(--muted)' }}>Nothing matches that filter.</p>}
+      {groups.length === 0 && (
+        <p style={{ color: 'var(--muted)' }}>
+          Nothing matches. {rows.length} item{rows.length === 1 ? '' : 's'} in total.
+        </p>
+      )}
 
       {groups.map((g) => {
         const allChosen = g.rows.every((r) => selected.has(id(r)));
@@ -839,36 +897,6 @@ function Dashboard(props: {
     </div>
   );
 }
-
-/* --------------------------------------------------------------- filtering */
-
-export type ReadinessFilter = 'all' | 'needs-work' | 'not-reviewed' | 'ready';
-
-/**
- * An epic's readiness is the worst of itself and its stories: an epic whose
- * stories are unusable is not ready, however well the epic itself reads. This
- * is what makes the filter useful rather than merely decorative.
- */
-function epicReadiness(
-  epic: EpicItem,
-  qualityFor: (level: 'epic' | 'story', ref: string) => ItemQuality | undefined
-): Exclude<ReadinessFilter, 'all'> {
-  const all = [qualityFor('epic', epic.ref), ...epic.stories.map((s) => qualityFor('story', s.ref))].filter(
-    Boolean
-  ) as ItemQuality[];
-  if (all.length === 0) return 'not-reviewed';
-  if (all.some((q) => !q.passed && !q.deterministicOnly)) return 'needs-work';
-  if (all.some((q) => q.blockedBy.length > 0)) return 'needs-work';
-  if (all.some((q) => q.deterministicOnly)) return 'not-reviewed';
-  return 'ready';
-}
-
-const FILTER_LABEL: Record<ReadinessFilter, string> = {
-  all: 'All',
-  'needs-work': 'Needs work',
-  'not-reviewed': 'Not reviewed',
-  ready: 'Ready'
-};
 
 /* ------------------------------------------------------------------ status */
 
@@ -1853,8 +1881,6 @@ function PlanModal({ state, only }: { state: PanelState; only: string[] }) {
 function App() {
   const [state, setState] = useState<PanelState>(EMPTY);
   const [selected, setSelected] = useState<string | undefined>();
-  const [included, setIncluded] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState<ReadinessFilter>('all');
   // Opening a backlog lands on the dashboard; the editor is where you go to
   // change one thing. Reset on a backlog switch so you never land mid-edit in
   // something you did not open.
@@ -1876,7 +1902,6 @@ function App() {
         setDraft(undefined); // host is authoritative; local edits are flushed before actions
         const epics = msg.state.backlog?.epics ?? [];
         setSelected((cur) => (cur && epics.some((e) => e.ref === cur) ? cur : epics[0]?.ref));
-        setIncluded(new Set(epics.map((e) => e.ref)));
       }
     };
     window.addEventListener('message', onMessage);
@@ -1952,27 +1977,10 @@ function App() {
     [state.quality]
   );
 
-  const readiness = useCallback((epic: EpicItem) => epicReadiness(epic, qualityFor), [qualityFor]);
-
-  const filterCounts = useMemo(() => {
-    const counts: Record<ReadinessFilter, number> = { all: epics.length, 'needs-work': 0, 'not-reviewed': 0, ready: 0 };
-    for (const e of epics) counts[readiness(e)]++;
-    return counts;
-  }, [epics, readiness]);
-
-  const visibleEpics = useMemo(
-    () => (filter === 'all' ? epics : epics.filter((e) => readiness(e) === filter)),
-    [epics, filter, readiness]
-  );
-
-  // Keep the detail pane in step with the filter rather than showing a hidden item.
-  useEffect(() => {
-    if (visibleEpics.length === 0) return;
-    if (!selected || !visibleEpics.some((e) => e.ref === selected)) setSelected(visibleEpics[0].ref);
-  }, [visibleEpics, selected]);
-
   const current = useMemo(() => epics.find((e) => e.ref === selected), [epics, selected]);
-  const onlyRefs = useMemo(() => [...included], [included]);
+  // Sending from the header means the whole backlog; the list view is where a
+  // subset gets chosen.
+  const onlyRefs = useMemo(() => epics.map((e) => e.ref), [epics]);
 
   const totals = useMemo(() => {
     const stories = epics.flatMap((e) => e.stories);
@@ -2182,9 +2190,6 @@ function App() {
       {step && !state.busy && (
         <div className="guidance">
           <span>{step.why}</span>
-          <button className="link-like" onClick={() => act(step.msg)}>
-            {step.label}
-          </button>
         </div>
       )}
 
@@ -2247,73 +2252,6 @@ function App() {
           />
         ) : (
         <>
-        <div className="rail">
-          <div className="rail-tools">
-            <select value={filter} onChange={(ev) => setFilter(ev.target.value as ReadinessFilter)}>
-              {(['all', 'needs-work', 'not-reviewed', 'ready'] as ReadinessFilter[]).map((f) => (
-                <option key={f} value={f} disabled={f !== 'all' && filterCounts[f] === 0}>
-                  {FILTER_LABEL[f]} ({filterCounts[f]})
-                </option>
-              ))}
-            </select>
-            <div className="rail-select">
-              <span>send:</span>
-              <button
-                className="ghost"
-                title="Include every epic currently shown"
-                onClick={() => setIncluded(new Set([...included, ...visibleEpics.map((e) => e.ref)]))}
-              >
-                all shown
-              </button>
-              <button className="ghost" title="Include none" onClick={() => setIncluded(new Set())}>
-                none
-              </button>
-              <span style={{ marginLeft: 'auto' }}>{included.size} selected</span>
-            </div>
-          </div>
-
-          {visibleEpics.length === 0 && (
-            <p style={{ color: 'var(--muted)', padding: '12px 10px' }}>
-              No epics are {FILTER_LABEL[filter].toLowerCase()}.
-            </p>
-          )}
-
-          {visibleEpics.map((e) => {
-            const status = statusOf(e, qualityFor('epic', e.ref));
-            return (
-              <div
-                key={e.ref}
-                className={`epic-row ${selected === e.ref ? 'selected' : ''}`}
-                onClick={() => setSelected(e.ref)}
-              >
-                <input
-                  type="checkbox"
-                  checked={included.has(e.ref)}
-                  title="Include when sending to Jira"
-                  onClick={(ev) => ev.stopPropagation()}
-                  onChange={(ev) => {
-                    const next = new Set(included);
-                    ev.target.checked ? next.add(e.ref) : next.delete(e.ref);
-                    setIncluded(next);
-                  }}
-                />
-                <span className={`dot ${status}`} title={STATUS_LABEL[status]} />
-                <div style={{ minWidth: 0 }}>
-                  <div className="title">{e.title || 'Untitled epic'}</div>
-                  <div className="meta">
-                    {e.sizing} · {e.stories.length} stories
-                    {e.sync.jiraKey ? ` · ${e.sync.jiraKey}` : ''}
-                  </div>
-                </div>
-                <ScorePill quality={qualityFor('epic', e.ref)} />
-              </div>
-            );
-          })}
-          <button className="ghost" style={{ width: '100%', marginTop: 6 }} onClick={() => act({ type: 'addEpic' })}>
-            + Add epic
-          </button>
-        </div>
-
         <div className="detail">
           {current ? (
             <EpicDetail
