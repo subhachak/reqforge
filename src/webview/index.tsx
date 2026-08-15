@@ -954,7 +954,15 @@ function Setup({ state }: { state: PanelState }) {
  * Deliberately does not open anything on its own. The user says what they came
  * to do; nothing is fetched from Jira until they ask for it.
  */
-function Home({ state }: { state: PanelState }) {
+function Home({
+  state,
+  onOpen,
+  onDelete
+}: {
+  state: PanelState;
+  onOpen: (slug: string) => void;
+  onDelete: (slug: string) => void;
+}) {
   const [issueKey, setIssueKey] = useState('');
 
   return (
@@ -1008,7 +1016,7 @@ function Home({ state }: { state: PanelState }) {
             <span style={{ color: 'var(--muted)', fontSize: 12 }}>saved on this machine</span>
           </div>
           {state.recent.map((r) => (
-            <div key={r.slug} className="recent" onClick={() => post({ type: 'openBacklog', slug: r.slug })}>
+            <div key={r.slug} className="recent" onClick={() => onOpen(r.slug)}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 500 }}>{r.title}</div>
                 <div style={{ color: 'var(--muted)', fontSize: 12 }}>
@@ -1016,6 +1024,16 @@ function Home({ state }: { state: PanelState }) {
                 </div>
               </div>
               {r.unpushed > 0 && <span className="chip">{r.unpushed} not sent</span>}
+              <button
+                className="ghost danger"
+                title="Remove this backlog from this machine"
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  onDelete(r.slug);
+                }}
+              >
+                ✕
+              </button>
               <span style={{ color: 'var(--muted)' }}>›</span>
             </div>
           ))}
@@ -1239,20 +1257,39 @@ function App() {
 
   const epics = draft ?? state.backlog?.epics ?? [];
 
-  /** Local edit, then a debounced save. Flushed before any host action. */
-  const edit = useCallback((next: EpicItem[]) => {
-    setDraft(next);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => post({ type: 'edit', epics: next }), 400);
-  }, []);
+  /**
+   * Local edit, then a debounced save.
+   *
+   * The slug travels with the message. A debounced edit that fires after the
+   * user has switched to a different backlog would otherwise be applied to
+   * whichever one is loaded now, writing one backlog's contents over another.
+   */
+  const edit = useCallback(
+    (next: EpicItem[]) => {
+      setDraft(next);
+      if (timer.current) clearTimeout(timer.current);
+      const slug = state.slug;
+      timer.current = setTimeout(() => post({ type: 'edit', slug, epics: next }), 400);
+    },
+    [state.slug]
+  );
 
   const flush = useCallback(() => {
     if (timer.current) {
       clearTimeout(timer.current);
       timer.current = undefined;
     }
-    if (draft) post({ type: 'edit', epics: draft });
-  }, [draft]);
+    if (draft) post({ type: 'edit', slug: state.slug, epics: draft });
+  }, [draft, state.slug]);
+
+  /** Abandons a pending edit without sending it. Used when leaving a backlog. */
+  const discardPending = useCallback(() => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = undefined;
+    }
+    setDraft(undefined);
+  }, []);
 
   const act = useCallback(
     (msg: WebviewMessage) => {
@@ -1380,7 +1417,14 @@ function App() {
         )}
         {banner}
         <div className="body">
-          <Home state={state} />
+          <Home
+            state={state}
+            onOpen={(slug) => act({ type: 'openBacklog', slug })}
+            onDelete={(slug) => {
+              discardPending();
+              post({ type: 'deleteBacklog', slug });
+            }}
+          />
         </div>
         {overlay}
       </div>

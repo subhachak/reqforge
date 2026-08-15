@@ -16,6 +16,7 @@ import {
   cacheKey,
   evaluateBacklog,
   fixInstruction,
+  deleteQuality,
   loadQuality,
   loadRubric,
   pruneAssessments,
@@ -469,6 +470,10 @@ export class BacklogPanel {
         await this.send();
         return;
 
+      case 'deleteBacklog':
+        await this.deleteBacklog(msg.slug);
+        return;
+
       case 'decompose':
         await vscode.commands.executeCommand('reqforge.decomposePrd');
         return;
@@ -515,13 +520,39 @@ export class BacklogPanel {
         await this.send();
         return;
 
-      case 'edit':
+      case 'edit': {
         if (!this.backlog) return;
+
+        // A debounced edit can arrive after the user has switched backlogs.
+        // Applying it would write one backlog's contents over another, so an
+        // edit authored against a different slug is dropped.
+        if (msg.slug !== undefined && msg.slug !== this.slug) {
+          this.out.appendLine(`Ignored an edit meant for "${msg.slug}" while "${this.slug}" is open.`);
+          return;
+        }
+
+        // Editing is not how items are removed — deleteItem is, and it asks
+        // first. An edit that would empty a populated backlog is a bug
+        // somewhere upstream, and applying it destroys work irrecoverably.
+        if (msg.epics.length === 0 && this.backlog.epics.length > 0) {
+          this.out.appendLine(
+            `Refused an edit that would have removed all ${this.backlog.epics.length} epics from "${this.slug}".`
+          );
+          this.notice = {
+            kind: 'warn',
+            message: 'An edit that would have emptied this backlog was ignored.',
+            hint: 'Nothing was lost. Use the delete control on an epic if you meant to remove one.'
+          };
+          await this.send();
+          return;
+        }
+
         this.snapshot('edit', 'edit');
         this.backlog.epics = msg.epics;
         await this.save();
         await this.send();
         return;
+      }
 
       case 'undo':
         await this.undo();
@@ -652,6 +683,48 @@ export class BacklogPanel {
         await this.push(msg.only);
         return;
     }
+  }
+
+  /**
+   * Removes a backlog from this machine.
+   *
+   * Anything already sent stays in Jira — saying so plainly matters, because
+   * the two are easy to conflate and one of them is not reversible from here.
+   * The stamp labels survive too, so re-decomposing the same page later adopts
+   * those issues rather than duplicating them.
+   */
+  private async deleteBacklog(slug: string) {
+    const backlog = await this.store().load(slug).catch(() => undefined);
+    const title = backlog?.source.title ?? slug;
+    const pushed = backlog
+      ? [...backlog.epics, ...backlog.epics.flatMap((e) => e.stories)].filter((i) => i.sync.jiraKey).length
+      : 0;
+
+    const detail = pushed
+      ? `${pushed} item(s) have already been sent to Jira. They will stay there — this only removes the local copy. ` +
+        `If you decompose the same page again, those issues are recognised and updated rather than duplicated.`
+      : 'Nothing from this backlog has been sent to Jira, so it will be gone for good.';
+
+    const ok = await vscode.window.showWarningMessage(`Delete "${title}" from this machine?`, { modal: true, detail }, 'Delete');
+    if (ok !== 'Delete') return;
+
+    await this.store().remove(slug);
+    await deleteQuality(new WorkspaceFs(), dataFolder(), slug);
+
+    // Drop it from memory too if it is the one currently open.
+    if (this.slug === slug) {
+      this.backlog = undefined;
+      this.slug = undefined;
+      this.assessments = new Map();
+      this.overrides = new Map();
+      this.clearHistory();
+      this.plan = undefined;
+      this.view = 'home';
+    }
+
+    this.onChanged();
+    this.notice = { kind: 'info', message: `Removed "${title}" from this machine.` };
+    await this.send();
   }
 
   /* ----------------------------------------------------------------- setup */

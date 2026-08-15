@@ -104,13 +104,16 @@ export type WebviewMessage =
   /* home */
   | { type: 'decompose' }
   | { type: 'openBacklog'; slug: string }
+  | { type: 'deleteBacklog'; slug: string }
   /* jira refine */
   | { type: 'fetchJiraIssue'; key: string }
   | { type: 'refineJiraIssue'; instruction: string }
   | { type: 'applyJiraRefine' }
   | { type: 'discardJiraRefine' }
   /* backlog */
-  | { type: 'edit'; epics: EpicItem[] }
+  /** `slug` identifies the backlog these epics were edited against. The host
+   *  discards the message if a different backlog is now loaded. */
+  | { type: 'edit'; slug: string | undefined; epics: EpicItem[] }
   | { type: 'generateStories'; epicRefs: string[] }
   | { type: 'refine'; level: 'epic' | 'story'; ref: string; instruction: string }
   | { type: 'acceptRefine' }

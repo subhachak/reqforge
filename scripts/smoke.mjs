@@ -21,7 +21,8 @@ export { storageToMarkdown } from '${path.resolve('src/adapters/atlassian/storag
 export { markdownToAdf, adfToMarkdown } from '${path.resolve('src/adapters/atlassian/adf.ts')}';
 export { extractPageId } from '${path.resolve('src/adapters/atlassian/rest.ts')}';
 export { epicToMarkdown, stampLabel, epicFingerprint } from '${path.resolve('src/core/model.ts')}';
-export { serializeBacklog, deserializeBacklog } from '${path.resolve('src/core/store.ts')}';
+export { serializeBacklog, deserializeBacklog, BacklogStore, backlogPath } from '${path.resolve('src/core/store.ts')}';
+export { loadQuality, saveQuality, deleteQuality, qualityPath } from '${path.resolve('src/core/rubric/store.ts')}';
 export { evaluateBacklog, scoreCriteria, fixInstruction, cacheKey, overrideKey } from '${path.resolve('src/core/rubric/score.ts')}';
 export { DEFAULT_RUBRIC } from '${path.resolve('src/core/rubric/types.ts')}';
 export { RULE_IDS } from '${path.resolve('src/core/rubric/rules.ts')}';
@@ -481,6 +482,65 @@ check('a structurally broken item still fails under the defaults',
 check('rubric exposes every rule id for config', m.RULE_IDS.length >= 18 && m.RULE_IDS.includes('generic-persona'));
 check('INVEST is complete and correctly named',
   ['Independent','Negotiable','Valuable','Estimable','Small','Testable'].every((n) => m.STORY_CRITERIA.some((c) => c.name === n)));
+
+/* ------------------------------------------------------- backlog store CRUD */
+
+const memFs = () => {
+  const files = new Map();
+  return {
+    files,
+    async read(p) { return files.get(p); },
+    async write(p, c) { files.set(p, c); },
+    async list(dir) { return [...files.keys()].filter((k) => k.startsWith(dir + '/')).map((k) => k.slice(dir.length + 1)); },
+    async remove(p) { files.delete(p); }
+  };
+};
+
+{
+  const fs = memFs();
+  const store = new m.BacklogStore(fs, '.reqforge');
+  const b = backlogOf([goodEpic]);
+  b.source.title = 'Payments';
+
+  await store.save('payments', b);
+  await store.save('other', b);
+  await m.saveQuality(fs, '.reqforge', 'payments', { assessments: new Map([['k', []]]), overrides: new Map() });
+
+  check('store: saved backlogs are listed', (await store.listSlugs()).sort().join(',') === 'other,payments');
+  check('store: a saved backlog loads back', (await store.load('payments'))?.source.title === 'Payments');
+  check('store: the quality sidecar is written', fs.files.has(m.qualityPath('.reqforge', 'payments')));
+
+  await store.remove('payments');
+  await m.deleteQuality(fs, '.reqforge', 'payments');
+
+  check('delete: the backlog is gone from the list', (await store.listSlugs()).join(',') === 'other');
+  check('delete: loading it returns nothing', (await store.load('payments')) === undefined);
+  check('delete: its quality sidecar is gone too', !fs.files.has(m.qualityPath('.reqforge', 'payments')));
+  check('delete: other backlogs are untouched', (await store.load('other'))?.source.title === 'Payments');
+  check('delete: deleting a missing backlog is not an error', await store.remove('nope').then(() => true).catch(() => false));
+}
+
+/* Regression: a save must leave the previous contents recoverable. This file is
+   the only record of work that has not reached Jira. */
+{
+  const fs = memFs();
+  const store = new m.BacklogStore(fs, '.reqforge');
+  const one = backlogOf([goodEpic]);
+  const emptied = backlogOf([]);
+
+  await store.save('x', one);
+  check('backup: the first save creates no backup', !fs.files.has('.reqforge/x.backlog.yaml.bak'));
+
+  await store.save('x', emptied);
+  const bak = fs.files.get('.reqforge/x.backlog.yaml.bak');
+  check('backup: the previous contents are kept', Boolean(bak) && bak.includes('good'));
+  check('backup: the current file has the new contents', (await store.load('x')).epics.length === 0);
+  check('backup: the backup still parses as a backlog', m.deserializeBacklog(bak).epics.length === 1);
+  check('backup: backups are not listed as backlogs', (await store.listSlugs()).join(',') === 'x');
+
+  await store.remove('x');
+  check('backup: removing a backlog removes its backup too', !fs.files.has('.reqforge/x.backlog.yaml.bak'));
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

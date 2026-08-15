@@ -13,6 +13,8 @@ export interface FileSystemLike {
   read(relPath: string): Promise<string | undefined>;
   write(relPath: string, contents: string): Promise<void>;
   list(relDir: string): Promise<string[]>;
+  /** Removes a file. Missing files are not an error. */
+  remove(relPath: string): Promise<void>;
 }
 
 const HEADER = `# ReqForge backlog — edit freely, then run "ReqForge: Push Backlog to Jira".
@@ -68,8 +70,18 @@ export class BacklogStore {
     private readonly folder: string
   ) {}
 
+  /**
+   * Saves, keeping the previous contents alongside as `.bak`.
+   *
+   * This file is the only record of work that has not reached Jira, it is
+   * rewritten on a 400ms debounce while somebody types, and a bug upstream
+   * can therefore destroy an afternoon in one write. One generation of backup
+   * costs a few kilobytes.
+   */
   async save(slug: string, backlog: Backlog): Promise<string> {
     const path = backlogPath(this.folder, slug);
+    const previous = await this.fs.read(path);
+    if (previous) await this.fs.write(`${path}.bak`, previous);
     await this.fs.write(path, serializeBacklog(backlog));
     return path;
   }
@@ -84,8 +96,18 @@ export class BacklogStore {
     return text ? deserializeBacklog(text) : undefined;
   }
 
+  /** Deletes the backlog file. Anything already in Jira is untouched. */
+  async remove(slug: string): Promise<void> {
+    const path = backlogPath(this.folder, slug);
+    await this.fs.remove(path);
+    await this.fs.remove(`${path}.bak`);
+  }
+
   async listSlugs(): Promise<string[]> {
     const files = await this.fs.list(this.folder);
-    return files.filter((f) => f.endsWith('.backlog.yaml')).map((f) => f.replace(/\.backlog\.yaml$/, ''));
+    // .bak files are backups, not backlogs.
+    return files
+      .filter((f) => f.endsWith('.backlog.yaml'))
+      .map((f) => f.replace(/\.backlog\.yaml$/, ''));
   }
 }

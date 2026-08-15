@@ -62,6 +62,11 @@ export async function saveQuality(
   await fs.write(qualityPath(folder, slug), JSON.stringify(file, null, 2));
 }
 
+/** Removes the sidecar, for when its backlog is deleted. */
+export async function deleteQuality(fs: FileSystemLike, folder: string, slug: string): Promise<void> {
+  await fs.remove(qualityPath(folder, slug));
+}
+
 /**
  * Drops entries whose fingerprint no longer appears in the backlog, so the file
  * does not grow forever as items are edited.

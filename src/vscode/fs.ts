@@ -24,6 +24,14 @@ export class WorkspaceFs implements FileSystemLike {
     await vscode.workspace.fs.writeFile(uri, Buffer.from(contents, 'utf8'));
   }
 
+  async remove(relPath: string): Promise<void> {
+    try {
+      await vscode.workspace.fs.delete(this.uri(relPath), { useTrash: true });
+    } catch {
+      // Already gone is the desired end state.
+    }
+  }
+
   async list(relDir: string): Promise<string[]> {
     try {
       const entries = await vscode.workspace.fs.readDirectory(this.uri(relDir));
