@@ -165,8 +165,8 @@
     "build": "node esbuild.mjs --profile=restricted",
     "build:full": "node esbuild.mjs --profile=full",
     "watch": "node esbuild.mjs --profile=restricted --watch",
-    "package": "npm run typecheck && node esbuild.mjs --profile=restricted --minify && npx --yes @vscode/vsce package --out reqforge-restricted.vsix",
-    "package:full": "npm run typecheck && node esbuild.mjs --profile=full --minify && npx --yes @vscode/vsce package --out reqforge-full.vsix",
+    "package": "npm run check && node esbuild.mjs --profile=restricted --minify && npx --yes @vscode/vsce package --out reqforge-restricted.vsix",
+    "package:full": "npm run check && node esbuild.mjs --profile=full --minify && npx --yes @vscode/vsce package --out reqforge-full.vsix",
     "vscode:prepublish": "npm run build",
     "harness": "node scripts/harness.mjs"
   },
@@ -185,5 +185,9 @@
     "@types/vscode": "^1.99.0",
     "esbuild": "^0.24.0",
     "typescript": "^5.6.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/subhachak/reqforge.git"
   }
 }

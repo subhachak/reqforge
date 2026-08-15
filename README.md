@@ -105,10 +105,59 @@ So the host is fixed, and the job is to make it disappear behind the panel.
 ```bash
 npm run build          # restricted
 npm run build:full     # full
-npm run package        # reqforge-restricted.vsix
+npm run package        # typecheck + tests + minified build -> reqforge-restricted.vsix
+npm run package:full   # -> reqforge-full.vsix
 ```
 
+`package` runs `npm run check` first, so a VSIX cannot be produced from a tree that fails the
+tests or the compliance guard.
+
 The restricted build runs a **compliance guard** (`esbuild.mjs`) that greps the output bundle for `api.anthropic.com`, `@anthropic-ai/sdk`, `@modelcontextprotocol/sdk`, `mcp.atlassian.com`, and `api.openai.com`, and fails the build on a hit. Your client's security team will run that grep; better that your CI runs it first.
+
+---
+
+## Installing it
+
+```bash
+npm run package
+code --install-extension reqforge-restricted.vsix
+```
+
+Or in VS Code: Extensions view → `···` → **Install from VSIX**. Reload the window afterwards, then
+<kbd>⌘⇧P</kbd> → `ReqForge: Open`.
+
+The VSIX is around 420 KB and contains nine files: the two bundles, `package.json`, the readme,
+the licence and the activity-bar icon. No source, no `node_modules`, no source maps, no
+credentials — the token lives in the OS keychain and never goes near the package. Worth verifying
+before handing it to a client:
+
+```bash
+unzip -l reqforge-restricted.vsix
+unzip -p reqforge-restricted.vsix extension/dist/extension.js | grep -c "anthropic\|openai\|modelcontextprotocol"
+```
+
+That grep should print `0` for the restricted build, which is the same check the compliance guard
+runs at build time.
+
+### Getting it to the client
+
+For a client with a restrictive policy, hand over the `.vsix` directly — an internal file share,
+an artifact repository, or attached to a ticket. Nothing touches the public marketplace, which is
+usually what such a client wants.
+
+Two consequences of VSIX distribution worth stating up front:
+
+- **No automatic updates.** Users install a new `.vsix` over the old one. Bump `version` in
+  `package.json` each time or people cannot tell what they are running.
+- **No signature.** VS Code will install it without complaint, but some managed estates block
+  unsigned extensions by policy. Check before the rollout, not during it.
+
+If the client runs a private extension gallery or Open VSX internally, publishing there gives you
+updates and signing; otherwise `code --install-extension` in an onboarding script is the usual
+answer.
+
+There is no marketplace icon (`icon` in `package.json`) because that needs a 128×128 PNG and only
+affects a marketplace listing. Add one if you ever publish.
 
 ---
 
