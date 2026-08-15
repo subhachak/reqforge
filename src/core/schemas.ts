@@ -39,10 +39,16 @@ export const StoryProposalSchema = z.object({
     .regex(/^[a-z0-9][a-z0-9-]*$/, 'ref must be lowercase kebab-case'),
   epicRef: z.string().min(1),
   title: z.string().min(1).max(255),
+  /**
+   * Not required to be non-empty. A story pulled from a hand-written Jira
+   * issue has no narrative, and refusing to load the file is the wrong
+   * response — the `has-narrative` rubric rule is a blocker, which reports the
+   * same problem somewhere the user can act on it.
+   */
   narrative: z.object({
-    asA: z.string().min(1),
-    iWant: z.string().min(1),
-    soThat: z.string().min(1)
+    asA: z.string().default(''),
+    iWant: z.string().default(''),
+    soThat: z.string().default('')
   }),
   description: z.string().default(''),
   acceptanceCriteria: z.array(AcceptanceCriterionSchema).min(1),

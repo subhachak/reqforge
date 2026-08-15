@@ -105,6 +105,23 @@ export function parseEpicMarkdown(key: string, summary: string, markdown: string
   };
 }
 
+/**
+ * Reads the three narrative parts whether they are on separate lines or run
+ * together on one. Anchoring each to its own line looks right until a renderer
+ * somewhere collapses the paragraph, at which point "As a" greedily swallows
+ * the other two and they come back empty.
+ */
+function narrativeFrom(text: string): { asA: string; iWant: string; soThat: string } {
+  const grab = (label: string): string => {
+    const re = new RegExp(
+      `\\*\\*${label}\\*\\*\\s*([\\s\\S]*?)\\s*(?=\\*\\*(?:As a|I want|So that)\\*\\*|$)`,
+      'i'
+    );
+    return text.match(re)?.[1]?.trim() ?? '';
+  };
+  return { asA: grab('As a'), iWant: grab('I want'), soThat: grab('So that') };
+}
+
 const POINTS = new Set([1, 2, 3, 5, 8, 13]);
 
 export function parseStoryMarkdown(
@@ -117,9 +134,7 @@ export function parseStoryMarkdown(
   const { preamble, sections } = split(clean);
   const text = preamble.join('\n');
 
-  const asA = text.match(/^\*\*As a\*\*\s*(.+?)\s*$/m)?.[1]?.trim() ?? '';
-  const iWant = text.match(/^\*\*I want\*\*\s*(.+?)\s*$/m)?.[1]?.trim() ?? '';
-  const soThat = text.match(/^\*\*So that\*\*\s*(.+?)\s*$/m)?.[1]?.trim() ?? '';
+  const { asA, iWant, soThat } = narrativeFrom(text);
 
   const description = text
     .replace(/^\*\*(As a|I want|So that)\*\*.*$/gm, '')

@@ -542,6 +542,45 @@ check('INVEST is complete and correctly named',
     loose.acceptanceCriteria[0].then === 'It must be fast');
 }
 
+/* ------------------------------- the round trip that actually happens in Jira */
+
+{
+  // The earlier round-trip tests parse the markdown we rendered. Real data goes
+  // markdown -> ADF -> Jira -> ADF -> markdown, and that is where a story's
+  // three-line narrative was being collapsed into one line, leaving iWant and
+  // soThat empty and the backlog file unloadable.
+  const viaJira = (md) => m.adfToMarkdown(m.markdownToAdf(md));
+
+  const st = m.parseStoryMarkdown('K-1', goodStory.title, viaJira(m.storyToMarkdown(goodStory)), 'e');
+  check('via ADF: narrative asA survives', st.narrative.asA === goodStory.narrative.asA, st.narrative.asA);
+  check('via ADF: narrative iWant survives', st.narrative.iWant === goodStory.narrative.iWant, st.narrative.iWant);
+  check('via ADF: narrative soThat survives', st.narrative.soThat === goodStory.narrative.soThat, st.narrative.soThat);
+  check('via ADF: acceptance criteria survive',
+    JSON.stringify(st.acceptanceCriteria) === JSON.stringify(goodStory.acceptanceCriteria));
+  check('via ADF: points survive', st.points === goodStory.points);
+
+  const ep = m.parseEpicMarkdown('K-2', goodEpic.title, viaJira(m.epicToMarkdown(goodEpic)));
+  check('via ADF: epic outcome survives', ep.outcome === goodEpic.outcome, ep.outcome);
+  check('via ADF: epic in scope survives', ep.inScope.join('|') === goodEpic.inScope.join('|'));
+  check('via ADF: epic criteria survive',
+    JSON.stringify(ep.acceptanceCriteria) === JSON.stringify(goodEpic.acceptanceCriteria));
+
+  // Even if a renderer somewhere does collapse it, the parser must cope.
+  const collapsed = m.parseStoryMarkdown('K-3', 'T',
+    '**As a** shopper **I want** to pay **So that** I am done\n\n## Acceptance criteria\n- **Given** a **when** b **then** c', 'e');
+  check('collapsed narrative: asA does not swallow the rest', collapsed.narrative.asA === 'shopper', collapsed.narrative.asA);
+  check('collapsed narrative: iWant is recovered', collapsed.narrative.iWant === 'to pay');
+  check('collapsed narrative: soThat is recovered', collapsed.narrative.soThat === 'I am done');
+
+  // A story with no narrative at all must still load; the rubric flags it.
+  const empty = m.deserializeBacklog(m.serializeBacklog(backlogOf([{ ...goodEpic,
+    stories: [{ ...goodStory, narrative: { asA: '', iWant: '', soThat: '' } }] }])));
+  check('a story with no narrative still loads', empty.epics[0].stories.length === 1);
+  const q = m.evaluateBacklog(empty, m.DEFAULT_RUBRIC).items.find((i) => i.ref === goodStory.ref);
+  check('a story with no narrative is blocked by the rubric instead',
+    q.blockedBy.some((b) => b.ruleId === 'has-narrative'), JSON.stringify(q.blockedBy));
+}
+
 /* ------------------------------------------------------------ sync status */
 
 {

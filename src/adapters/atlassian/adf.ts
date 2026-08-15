@@ -57,6 +57,24 @@ function paragraph(text: string): AdfNode {
   return { type: 'paragraph', content: inlineNodes(text) };
 }
 
+/**
+ * A paragraph that keeps its line breaks.
+ *
+ * Markdown says consecutive lines are one paragraph, and joining them with a
+ * space is the correct reading. It is the wrong reading here: a story's
+ * narrative is three lines, and collapsing them means that when the
+ * description is read back out of Jira the structure is gone and the whole
+ * thing parses as one field. `hardBreak` survives the round trip.
+ */
+function paragraphLines(lines: string[]): AdfNode {
+  const content: AdfNode[] = [];
+  lines.forEach((line, i) => {
+    if (i > 0) content.push({ type: 'hardBreak' });
+    content.push(...inlineNodes(line));
+  });
+  return { type: 'paragraph', content };
+}
+
 export function markdownToAdf(markdown: string): AdfDoc {
   const lines = markdown.replace(/\r\n/g, '\n').split('\n');
   const content: AdfNode[] = [];
@@ -150,7 +168,7 @@ export function markdownToAdf(markdown: string): AdfDoc {
       buf.push(lines[i]);
       i++;
     }
-    if (buf.length) content.push(paragraph(buf.join(' ')));
+    if (buf.length) content.push(paragraphLines(buf));
   }
 
   // ADF rejects an empty doc.
