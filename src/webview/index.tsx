@@ -44,7 +44,7 @@ const EMPTY: PanelState = {
   redoLabel: undefined,
   quality: undefined,
   criteria: [],
-  rubric: { threshold: 70, enforcement: 'block', requireReview: true, source: 'default' }
+  rubric: { threshold: 70, enforcement: 'label', requireReview: false, source: 'default' }
 };
 
 /* ------------------------------------------------------------- primitives */

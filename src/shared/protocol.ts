@@ -79,7 +79,7 @@ export interface PanelState {
   /** Where the rubric came from, and any problem loading it. */
   rubric: {
     threshold: number;
-    enforcement: 'block' | 'warn';
+    enforcement: 'block' | 'warn' | 'label';
     requireReview: boolean;
     source: 'default' | 'file';
     problem?: string;

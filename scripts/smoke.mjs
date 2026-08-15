@@ -25,6 +25,7 @@ export { serializeBacklog, deserializeBacklog } from '${path.resolve('src/core/s
 export { evaluateBacklog, scoreCriteria, fixInstruction, cacheKey, overrideKey } from '${path.resolve('src/core/rubric/score.ts')}';
 export { DEFAULT_RUBRIC } from '${path.resolve('src/core/rubric/types.ts')}';
 export { RULE_IDS } from '${path.resolve('src/core/rubric/rules.ts')}';
+export { qualityLabels, qualityNote, staleQualityLabels, qualityLabelVocabulary } from '${path.resolve('src/core/rubric/labels.ts')}';
 export { STORY_CRITERIA, EPIC_CRITERIA } from '${path.resolve('src/core/rubric/criteria.ts')}';
 `
 );
@@ -379,8 +380,11 @@ const lowCached = new Map([[m.cacheKey('epic', 'good', m.epicFingerprint(goodEpi
 const lowItem = m.evaluateBacklog(backlogOf([goodEpic]), m.DEFAULT_RUBRIC, lowCached).items.find((i) => i.ref === 'good');
 check('gate: below threshold fails', lowItem.score < 70 && lowItem.passed === false);
 
-check('gate: an unassessed item is not treated as passing', cleanItem.deterministicOnly === false &&
-  m.evaluateBacklog(backlogOf([goodEpic]), m.DEFAULT_RUBRIC).items.find((i) => i.ref === 'good').passed === false);
+// With requireReview on, an item nobody has reviewed must not read as passing.
+check('gate: with requireReview, an unassessed item is not treated as passing',
+  cleanItem.deterministicOnly === false &&
+  m.evaluateBacklog(backlogOf([goodEpic]), { ...m.DEFAULT_RUBRIC, requireReview: true })
+    .items.find((i) => i.ref === 'good').passed === false);
 
 // Editing an item must invalidate its cached assessment.
 const edited = { ...goodEpic, title: 'A different title' };
@@ -425,12 +429,54 @@ const acceptWithBlocker = m.evaluateBacklog(noAcBacklog, m.DEFAULT_RUBRIC, new M
 check('accept: cannot override a blocker', acceptWithBlocker.blockedBy.length === 1 && acceptWithBlocker.passed === false);
 
 // requireReview controls whether unreviewed items block.
-const strict = m.evaluateBacklog(backlogOf([goodEpic]), m.DEFAULT_RUBRIC).items.find((i) => i.ref === 'good');
+const strict = m.evaluateBacklog(backlogOf([goodEpic]), { ...m.DEFAULT_RUBRIC, requireReview: true }).items.find((i) => i.ref === 'good');
 const relaxed = m.evaluateBacklog(backlogOf([goodEpic]), { ...m.DEFAULT_RUBRIC, requireReview: false }).items.find((i) => i.ref === 'good');
 check('requireReview true: an unreviewed item fails', strict.passed === false && strict.deterministicOnly === true);
 check('requireReview false: an unreviewed clean item passes', relaxed.passed === true && relaxed.deterministicOnly === true);
 check('requireReview false: an unreviewed item with a blocker still fails',
   m.evaluateBacklog(noAcBacklog, { ...m.DEFAULT_RUBRIC, requireReview: false }).items.find((i) => i.ref === 'good').passed === false);
+
+/* ------------------------------------------------------- labels and notes */
+
+const mk = (over) => ({ level: 'story', ref: 'r', title: 't', score: 60, threshold: 70, passed: false,
+  blockedBy: [], warnings: [], criteria: [], assessedHash: 'h', assessedAt: 'now', deterministicOnly: false, waived: [], ...over });
+
+const weak = m.STORY_CRITERIA.map((c, i) => ({ id: c.id, rating: i < 2 ? 0 : 3, justification: 'x', suggestion: 'y' }));
+const below = mk({ score: 55, criteria: weak });
+const okItem = mk({ score: 90, passed: true, criteria: m.STORY_CRITERIA.map((c) => ({ id: c.id, rating: 3, justification: 'x', suggestion: '' })) });
+const unreviewed = mk({ score: 0, deterministicOnly: true, criteria: [] });
+
+const belowLabels = m.qualityLabels(below);
+check('labels: below threshold is tagged', belowLabels.includes('reqforge-quality-below-threshold'), belowLabels.join(','));
+check('labels: the weakest criteria are named', belowLabels.some((l) => l.startsWith('reqforge-needs-')), belowLabels.join(','));
+check('labels: criterion labels are capped at 3', belowLabels.filter((l) => l.startsWith('reqforge-needs-')).length <= 3);
+check('labels: a passing item is tagged ok', m.qualityLabels(okItem).includes('reqforge-quality-ok'));
+check('labels: an unreviewed item is tagged not-reviewed',
+  m.qualityLabels(unreviewed).join(',') === 'reqforge-not-reviewed');
+check('labels: every label is valid for Jira (no whitespace)',
+  [...m.qualityLabelVocabulary(), ...belowLabels].every((l) => /^[a-z0-9-]+$/.test(l)));
+check('labels: stale set excludes the current ones',
+  m.staleQualityLabels(below).every((l) => !belowLabels.includes(l)) &&
+  m.staleQualityLabels(below).includes('reqforge-quality-ok'));
+
+const note = m.qualityNote(below);
+check('note: states the score and threshold', note.includes('55/100') && note.includes('70'), note);
+check('note: names the weakest criteria', /Weakest:/.test(note), note);
+check('note: a passing item gets a one-liner', m.qualityNote(okItem).includes('90/100'));
+check('note: an unreviewed item says so', m.qualityNote(unreviewed).includes('not reviewed'));
+check('note: renders to valid ADF', m.markdownToAdf(note).content.length > 0);
+
+const accepted = mk({ score: 40, passed: true, acceptedBelowThreshold: { reason: 'spike', at: 'now' }, criteria: weak });
+check('labels: an accepted item is tagged accepted', m.qualityLabels(accepted).includes('reqforge-quality-accepted'));
+check('note: an accepted item records the reason', m.qualityNote(accepted).includes('spike'));
+
+/* enforcement defaults */
+check('default enforcement is label, not block', m.DEFAULT_RUBRIC.enforcement === 'label');
+check('default does not require a review to push', m.DEFAULT_RUBRIC.requireReview === false);
+check('an unreviewed clean item passes under the defaults',
+  m.evaluateBacklog(backlogOf([goodEpic]), m.DEFAULT_RUBRIC).items.find((i) => i.ref === 'good').passed === true);
+check('a structurally broken item still fails under the defaults',
+  m.evaluateBacklog(backlogOf([{ ...goodEpic, acceptanceCriteria: [] }]), m.DEFAULT_RUBRIC).items.find((i) => i.ref === 'good').blockedBy.length === 1);
 
 check('rubric exposes every rule id for config', m.RULE_IDS.length >= 18 && m.RULE_IDS.includes('generic-persona'));
 check('INVEST is complete and correctly named',

@@ -108,13 +108,21 @@ export interface RubricConfig {
   weights: Record<string, number>;
   /** Per-rule severity overrides. 'off' disables a rule. */
   rules: Record<string, Severity | 'off'>;
-  /** Whether failing items may still be pushed, with a confirmation. */
-  enforcement: 'block' | 'warn';
+  /**
+   * What a score below the threshold does at push time.
+   *   label — send it anyway, tagged in Jira with what fell short (default)
+   *   warn  — a modal confirmation first
+   *   block — refuse
+   * Structural blockers are never governed by this. A missing acceptance
+   * criterion is a fact about the item, not a judgement about it, and no
+   * setting lets one through.
+   */
+  enforcement: 'block' | 'warn' | 'label';
   /**
    * Whether an item that has never been through a model review counts as
-   * failing. True is the strict reading — nothing ships unreviewed. False lets
-   * a team rely on the deterministic rules alone and treat the model pass as
-   * advisory, which is the cheaper way to work day to day.
+   * failing. False by default: the deterministic rules are the gate, the model
+   * pass is advisory, and an unreviewed item ships tagged reqforge-not-reviewed.
+   * Set true for the strict reading, where nothing ships unreviewed.
    */
   requireReview: boolean;
 }
@@ -123,6 +131,6 @@ export const DEFAULT_RUBRIC: RubricConfig = {
   threshold: 70,
   weights: {},
   rules: {},
-  enforcement: 'block',
-  requireReview: true
+  enforcement: 'label',
+  requireReview: false
 };

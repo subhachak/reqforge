@@ -14,7 +14,7 @@ const SeveritySchema = z.enum(['blocker', 'warn', 'info', 'off']);
 
 const FileSchema = z.object({
   threshold: z.number().min(0).max(100).optional(),
-  enforcement: z.enum(['block', 'warn']).optional(),
+  enforcement: z.enum(['block', 'warn', 'label']).optional(),
   requireReview: z.boolean().optional(),
   weights: z.record(z.string(), z.number().min(0)).optional(),
   rules: z.record(z.string(), SeveritySchema).optional()
@@ -67,8 +67,12 @@ export function sampleRubricYaml(ruleIds: string[], criterionIds: string[]): str
 # An item must reach this score (0-100) to count as ready.
 threshold: ${DEFAULT_RUBRIC.threshold}
 
-# block = items below the threshold cannot be sent to Jira.
-# warn  = they can be sent after a confirmation.
+# What a score below the threshold does at push time.
+#   label = send anyway, tagged in Jira with what fell short
+#   warn  = send after a confirmation
+#   block = refuse
+# Structural problems (no acceptance criteria, incomplete given/when/then,
+# dangling dependencies) always block, whatever this is set to.
 enforcement: ${DEFAULT_RUBRIC.enforcement}
 
 # true  = an item that has never been through a model review counts as failing,

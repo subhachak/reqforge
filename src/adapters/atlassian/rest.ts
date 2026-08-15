@@ -227,12 +227,31 @@ export class AtlassianRestAdapter implements AtlassianPort {
     if (patch.summary !== undefined) fields.summary = patch.summary.slice(0, 255);
     if (patch.descriptionMarkdown !== undefined) fields.description = markdownToAdf(patch.descriptionMarkdown);
     if (patch.labels !== undefined) fields.labels = patch.labels;
-    if (Object.keys(fields).length === 0) return;
 
-    await this.call<void>(`/rest/api/3/issue/${encodeURIComponent(key)}`, {
-      method: 'PUT',
-      body: JSON.stringify({ fields })
-    });
+    // Label set operations rather than a whole-array write, so labels somebody
+    // added in Jira survive an update from here.
+    const ops = [
+      ...(patch.addLabels ?? []).map((l) => ({ add: l })),
+      ...(patch.removeLabels ?? []).map((l) => ({ remove: l }))
+    ];
+    const update = ops.length > 0 ? { labels: ops } : undefined;
+
+    if (Object.keys(fields).length === 0 && !update) return;
+
+    const path = `/rest/api/3/issue/${encodeURIComponent(key)}`;
+    try {
+      await this.call<void>(path, { method: 'PUT', body: JSON.stringify({ fields, ...(update ? { update } : {}) }) });
+    } catch (err) {
+      // Some configurations reject removing a label that is not present. The
+      // content matters more than the labels, so retry without them rather
+      // than failing the item outright.
+      if (!update || Object.keys(fields).length === 0) throw err;
+      await this.call<void>(path, { method: 'PUT', body: JSON.stringify({ fields }) });
+      throw new AtlassianError(
+        `${key} was updated, but its quality labels could not be applied: ${(err as Error).message}`,
+        (err as AtlassianError).status
+      );
+    }
   }
 }
 

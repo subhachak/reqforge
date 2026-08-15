@@ -166,15 +166,34 @@ offers no prompt caching, so one call per story would burn quota for nothing.
 
 ### What a failure actually stops
 
-| `enforcement` | Effect on a failing item |
-|---|---|
-| `block` *(default)* | The send is refused. The message says how many are blocked, how many scored low, and how many were never reviewed — those need different fixes. |
-| `warn` | A modal names the failing items; "Send Anyway" proceeds. |
+Two different things are being judged, and they are treated differently.
 
-Only items whose epic is **ticked for inclusion** are gated, so unticking an epic lets the rest go
-through. And with `requireReview: true` (the default) an item that has never been through a model
-review counts as failing — nothing ships unreviewed. Set it to `false` to treat the deterministic
-rules as the gate and the model pass as advisory.
+**Structural problems always block.** No acceptance criteria, an incomplete given/when/then, a
+dependency that does not exist — these are facts about the item, not opinions about it, and no
+setting lets one through. The message names them: *"3 × No acceptance criteria"*.
+
+**A low score does not block, by default.** It is a judgement, and a backlog nobody can move is
+worse than one that ships honest about itself. The item goes to Jira carrying:
+
+- **Labels** — `reqforge-quality-below-threshold`, plus up to three naming the weakest criteria
+  (`reqforge-needs-testable`), or `reqforge-not-reviewed`, or `reqforge-quality-ok`. Filterable,
+  dashboard-able, and valid Jira labels (no whitespace, checked by a test).
+- **A one-line note** appended to the description, because a label cannot hold a sentence:
+  *"Quality: 55/100, below the threshold of 70. Weakest: Testable 0/3, Independent 0/3."*
+
+On update these are applied with Jira's label **add/remove operations**, not a whole-array write,
+so labels somebody added in Jira by hand survive, and quality labels that no longer apply are
+cleared instead of piling up.
+
+| `enforcement` | Effect on a low-scoring item |
+|---|---|
+| `label` *(default)* | Sent, tagged with what fell short |
+| `warn` | A modal names them; "Send Anyway" proceeds |
+| `block` | Refused |
+
+Only items whose epic is **ticked for inclusion** are considered, so unticking an epic takes it
+out of both the gate and the send. `requireReview` (default `false`) decides whether a
+never-reviewed item counts as failing; under `label` that only changes which tag it gets.
 
 ### Three ways to clear a failure
 

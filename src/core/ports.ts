@@ -65,7 +65,14 @@ export interface NewIssue {
 export interface IssuePatch {
   summary?: string;
   descriptionMarkdown?: string;
+  /** Replaces the whole label set. Prefer addLabels/removeLabels on an update. */
   labels?: string[];
+  /**
+   * Additive label changes. A plain `labels` write replaces the array and would
+   * destroy labels people added in Jira by hand, so updates use set operations.
+   */
+  addLabels?: string[];
+  removeLabels?: string[];
 }
 
 export interface AtlassianPort {

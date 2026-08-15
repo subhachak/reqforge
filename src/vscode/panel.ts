@@ -842,37 +842,46 @@ export class BacklogPanel {
 
     // The gate is enforced here, on the host, and not only in the webview. A
     // disabled button is a hint; this is the rule.
+    //
+    // Two different things are being judged, and they are treated differently:
+    // a structural blocker is a fact about the item (no acceptance criteria,
+    // an incomplete given/when/then, a dependency that does not exist) and
+    // always stops the send. A low score is a judgement, and by default it
+    // does not — the item ships carrying labels and a note saying what fell
+    // short, which is more useful than a backlog nobody can move.
     const q = this.quality();
     const included = new Set(only);
-    const failing = (q?.items ?? []).filter((i) => {
-      if (i.passed) return false;
-      const epicRef = i.level === 'epic' ? i.ref : this.backlog!.epics.find((e) => e.stories.some((s) => s.ref === i.ref))?.ref;
+    const inScope = (i: { level: 'epic' | 'story'; ref: string }) => {
+      const epicRef =
+        i.level === 'epic' ? i.ref : this.backlog!.epics.find((e) => e.stories.some((s) => s.ref === i.ref))?.ref;
       return epicRef ? included.has(epicRef) : false;
-    });
+    };
 
-    if (failing.length > 0) {
-      const summary = failing
-        .slice(0, 6)
-        .map((i) => `• ${i.title} — ${i.deterministicOnly ? 'not reviewed yet' : `${i.score}/${i.threshold}`}`)
+    const structural = (q?.items ?? []).filter((i) => i.blockedBy.length > 0 && inScope(i));
+    if (structural.length > 0) {
+      this.notice = {
+        kind: 'error',
+        message: `${structural.length} item(s) are missing something Jira needs: ${summarise(structural)}.`,
+        hint: 'These are structural problems, not scores — fix them, or dismiss the check if it does not apply here.'
+      };
+      this.plan = undefined;
+      await this.send();
+      return;
+    }
+
+    const belowBar = (q?.items ?? []).filter((i) => !i.passed && i.blockedBy.length === 0 && inScope(i));
+    if (belowBar.length > 0 && this.rubric.enforcement !== 'label') {
+      const detail = belowBar
+        .slice(0, 8)
+        .map((i) => `• ${i.title} — ${i.deterministicOnly ? 'not reviewed' : `${i.score}/${i.threshold}`}`)
         .join('\n');
-      const more = failing.length > 6 ? `\n…and ${failing.length - 6} more.` : '';
+      const more = belowBar.length > 8 ? `\n…and ${belowBar.length - 8} more.` : '';
 
       if (this.rubric.enforcement === 'block') {
-        const unreviewed = failing.filter((i) => i.deterministicOnly).length;
-        const blocked = failing.filter((i) => i.blockedBy.length > 0).length;
-        const lowScoring = failing.length - unreviewed - blocked;
-        const reasons = [
-          blocked ? `${blocked} with blocking problems` : '',
-          lowScoring ? `${lowScoring} below ${this.rubric.threshold}` : '',
-          unreviewed ? `${unreviewed} not reviewed yet` : ''
-        ].filter(Boolean);
-
         this.notice = {
           kind: 'error',
-          message: `${failing.length} item(s) cannot be sent: ${reasons.join(', ')}.`,
-          hint: unreviewed
-            ? 'Run "Review quality", fix or dismiss the findings, or set requireReview: false in .reqforge/rubric.yaml.'
-            : 'Fix the findings, dismiss the ones that do not apply, or accept an item below the threshold with a reason.'
+          message: `${belowBar.length} item(s) are below the quality threshold of ${this.rubric.threshold}.`,
+          hint: 'Fix them, accept one below the threshold with a reason, or set enforcement: label in .reqforge/rubric.yaml.'
         };
         this.plan = undefined;
         await this.send();
@@ -880,8 +889,8 @@ export class BacklogPanel {
       }
 
       const proceed = await vscode.window.showWarningMessage(
-        `${failing.length} item(s) are below the quality threshold.`,
-        { modal: true, detail: `${summary}${more}` },
+        `${belowBar.length} item(s) are below the quality threshold.`,
+        { modal: true, detail: `${detail}${more}` },
         'Send Anyway'
       );
       if (proceed !== 'Send Anyway') return;
@@ -904,7 +913,10 @@ export class BacklogPanel {
     this.plan = undefined;
     await this.run('Sending to Jira…', async () => {
       const { atlassian } = await this.ports();
+      const qualityNow = this.quality();
+      const flagged = (qualityNow?.items ?? []).filter((i) => !i.passed && inScope(i)).length;
       const result = await executePush(atlassian, this.backlog!, plan, {
+        quality: new Map((qualityNow?.items ?? []).map((i) => [`${i.level}:${i.ref}`, i])),
         progress: {
           report: (message) => {
             this.busyLabel = message;
@@ -932,7 +944,8 @@ export class BacklogPanel {
             }
           : {
               kind: 'info',
-              message: `Done — ${result.created} created, ${result.updated} updated in ${plan.projectKey}.`
+              message: `Done — ${result.created} created, ${result.updated} updated in ${plan.projectKey}.`,
+              hint: flagged > 0 ? `${flagged} item(s) were sent tagged with quality problems.` : undefined
             };
     });
   }
@@ -972,6 +985,19 @@ export class BacklogPanel {
 </body>
 </html>`;
   }
+}
+
+/** "3 with no acceptance criteria, 1 with an incomplete criterion" */
+function summarise(items: { blockedBy: { message: string }[] }[]): string {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    for (const b of item.blockedBy) counts.set(b.message, (counts.get(b.message) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([message, n]) => `${n} × ${message.replace(/\.$/, '')}`)
+    .join(', ');
 }
 
 function nonceOf(): string {

@@ -3,6 +3,8 @@ import { AtlassianError } from '../ports';
 import type { Backlog, EpicItem, StoryItem } from '../model';
 import { epicFingerprint, epicToMarkdown, stampLabel, storyFingerprint, storyToMarkdown } from '../model';
 import type { Progress } from './decompose';
+import { qualityLabels, qualityNote, staleQualityLabels } from '../rubric/labels';
+import type { ItemQuality } from '../rubric/types';
 
 export type PushVerb = 'create' | 'update' | 'skip';
 
@@ -125,11 +127,21 @@ export interface PushResult {
  * to save the file afterwards, including on partial failure, so a re-run picks
  * up where this one stopped.
  */
+export interface ExecuteOptions {
+  progress?: Progress;
+  /**
+   * Quality verdicts keyed by `level:ref`. When supplied, items carry their
+   * verdict into Jira as labels and a one-line note, so a backlog that shipped
+   * with reservations says so on the ticket rather than only in this tool.
+   */
+  quality?: Map<string, ItemQuality>;
+}
+
 export async function executePush(
   atlassian: AtlassianPort,
   backlog: Backlog,
   plan: PushPlan,
-  opts: { progress?: Progress } = {}
+  opts: ExecuteOptions = {}
 ): Promise<PushResult> {
   const result: PushResult = { created: 0, updated: 0, skipped: 0, failures: [] };
   const byRef = new Map(plan.actions.map((a) => [`${a.level}:${a.ref}`, a]));
@@ -137,7 +149,7 @@ export async function executePush(
   for (const epic of backlog.epics) {
     const action = byRef.get(`epic:${epic.ref}`);
     if (action) {
-      await applyOne(atlassian, backlog, action, epic, 'epic', undefined, result, opts.progress);
+      await applyOne(atlassian, backlog, action, epic, 'epic', undefined, result, opts);
     }
 
     const parentKey = epic.sync.jiraKey;
@@ -151,7 +163,7 @@ export async function executePush(
         });
         continue;
       }
-      await applyOne(atlassian, backlog, storyAction, story, 'story', parentKey, result, opts.progress);
+      await applyOne(atlassian, backlog, storyAction, story, 'story', parentKey, result, opts);
     }
   }
 
@@ -166,8 +178,9 @@ async function applyOne(
   level: 'epic' | 'story',
   parentKey: string | undefined,
   result: PushResult,
-  progress?: Progress
+  opts: ExecuteOptions
 ): Promise<void> {
+  const progress = opts.progress;
   if (action.verb === 'skip') {
     result.skipped++;
     return;
@@ -179,10 +192,13 @@ async function applyOne(
     // Rendering happens inside the try: a malformed item must be recorded as a
     // single failed item, not abort the whole push and lose the keys of
     // everything already created.
-    const markdown = isEpic ? epicToMarkdown(item as EpicItem) : storyToMarkdown(item as StoryItem);
+    const quality = opts.quality?.get(`${level}:${item.ref}`);
+    const body = isEpic ? epicToMarkdown(item as EpicItem) : storyToMarkdown(item as StoryItem);
+    const markdown = quality ? `${body}\n\n${qualityNote(quality)}` : body;
     const hash = isEpic ? epicFingerprint(item as EpicItem) : storyFingerprint(item as StoryItem);
     const label = stampLabel(backlog.source.pageId, item.ref);
     const issueType = isEpic ? backlog.target.epicIssueType : backlog.target.storyIssueType;
+    const qLabels = quality ? qualityLabels(quality) : [];
 
     if (action.verb === 'create') {
       progress?.report(`Creating ${level}: ${item.title}`);
@@ -191,7 +207,7 @@ async function applyOne(
         issueTypeName: issueType,
         summary: item.title,
         descriptionMarkdown: markdown,
-        labels: ['reqforge', label],
+        labels: ['reqforge', label, ...qLabels],
         parentKey
       });
       item.sync = { jiraKey: ref.key, jiraUrl: ref.url, pushedHash: hash, pushedAt: new Date().toISOString() };
@@ -200,7 +216,11 @@ async function applyOne(
       progress?.report(`Updating ${action.jiraKey}: ${item.title}`);
       await atlassian.updateIssue(action.jiraKey!, {
         summary: item.title,
-        descriptionMarkdown: markdown
+        descriptionMarkdown: markdown,
+        // Set operations, so labels added in Jira by hand are preserved and
+        // quality labels that no longer apply are cleared rather than piling up.
+        addLabels: qLabels,
+        removeLabels: quality ? staleQualityLabels(quality) : []
       });
       item.sync = {
         ...item.sync,
