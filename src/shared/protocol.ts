@@ -1,55 +1,101 @@
-import type { Backlog, EpicItem, StoryItem } from '../core/model';
+import type { Backlog, EpicItem } from '../core/model';
 import type { PushPlan, PushResult } from '../core/pipeline/push';
 
 /**
  * The webview/host contract. Shared by both bundles, so a change breaks the
  * build rather than producing a silently ignored message at runtime.
  *
- * The host is the single source of truth. The webview never persists anything;
- * it posts an intent and re-renders whatever state comes back. Backlogs are
- * small (tens of items), so full-state round trips are simpler and safer than
- * incremental patching, and cost nothing at this size.
+ * The host is the single source of truth. The webview posts an intent and
+ * re-renders whatever state comes back; it never persists anything.
  */
 
+export type View = 'setup' | 'home' | 'backlog' | 'jira';
+
+/**
+ * Settings mirrored into the panel. The API token is deliberately absent —
+ * only whether one exists. Secrets live in the OS keychain and must never
+ * cross into a webview, where any script on the page could read them.
+ */
+export interface SetupState {
+  baseUrl: string;
+  email: string;
+  projectKey: string;
+  epicIssueType: string;
+  storyIssueType: string;
+  modelFamily: string;
+  hasToken: boolean;
+  /** Everything the tool needs before it can do anything useful. */
+  complete: boolean;
+  /** Populated by an explicit test, not on every render — each costs a round trip. */
+  atlassian: { state: 'unknown' | 'ok' | 'failed'; detail: string };
+  model: { state: 'unknown' | 'ok' | 'failed'; detail: string };
+}
+
+export interface RecentBacklog {
+  slug: string;
+  title: string;
+  epics: number;
+  stories: number;
+  unpushed: number;
+  projectKey: string;
+}
+
+/** A Jira issue pulled in for refinement, outside any backlog. */
+export interface JiraSession {
+  key: string;
+  url: string;
+  summary: string;
+  description: string;
+  issueType: string;
+  status: string;
+  pending?: { summary: string; description: string; changed: boolean };
+}
+
 export interface PanelState {
+  view: View;
+  setup: SetupState;
+  recent: RecentBacklog[];
+
   backlog: Backlog | undefined;
-  /** Backlogs available to switch between. */
-  available: { slug: string; title: string }[];
   slug: string | undefined;
-  /** True while a model call or Jira write is running. */
+  jira: JiraSession | undefined;
+
   busy: boolean;
   busyLabel: string;
-  /** Populated after a push preview. */
   plan: PushPlan | undefined;
-  /** Transient banner. */
   notice: { kind: 'info' | 'warn' | 'error'; message: string; hint?: string } | undefined;
-  /** Result of the most recent refine, awaiting accept or discard. */
   pendingRefine:
-    | {
-        level: 'epic' | 'story';
-        ref: string;
-        title: string;
-        beforeMarkdown: string;
-        afterMarkdown: string;
-        changed: boolean;
-      }
+    | { level: 'epic' | 'story'; ref: string; title: string; beforeMarkdown: string; afterMarkdown: string; changed: boolean }
     | undefined;
   jiraBrowseBase: string;
-  canPush: boolean;
-  /** What Undo would reverse, e.g. "delete epic". Absent when there is nothing to undo. */
   undoLabel: string | undefined;
   redoLabel: string | undefined;
 }
 
-export type HostMessage =
-  | { type: 'state'; state: PanelState }
-  | { type: 'pushed'; result: PushResult };
+export type HostMessage = { type: 'state'; state: PanelState } | { type: 'pushed'; result: PushResult };
+
+/** Fields a user can change in the settings form. The token has its own message. */
+export type SettingsPatch = Partial<
+  Pick<SetupState, 'baseUrl' | 'email' | 'projectKey' | 'epicIssueType' | 'storyIssueType' | 'modelFamily'>
+>;
 
 export type WebviewMessage =
   | { type: 'ready' }
-  | { type: 'selectBacklog'; slug: string }
+  | { type: 'navigate'; view: View }
+  /* setup */
+  | { type: 'saveSettings'; patch: SettingsPatch }
+  | { type: 'setToken' }
+  | { type: 'clearToken' }
+  | { type: 'testConnection' }
+  /* home */
   | { type: 'decompose' }
-  /** Full replacement of the epic list after an inline edit. */
+  | { type: 'openBacklog'; slug: string }
+  /* jira refine */
+  | { type: 'fetchJiraIssue'; key: string }
+  | { type: 'refineJiraIssue'; instruction: string }
+  | { type: 'applyJiraRefine' }
+  | { type: 'discardJiraRefine' }
+  /* backlog */
   | { type: 'edit'; epics: EpicItem[] }
   | { type: 'generateStories'; epicRefs: string[] }
   | { type: 'refine'; level: 'epic' | 'story'; ref: string; instruction: string }
@@ -62,10 +108,7 @@ export type WebviewMessage =
   | { type: 'push'; only: string[] }
   | { type: 'undo' }
   | { type: 'redo' }
+  /* chrome */
   | { type: 'dismissNotice' }
   | { type: 'dismissPlan' }
-  | { type: 'openExternal'; url: string }
-  | { type: 'revealFile' };
-
-/** Convenience for the webview, which receives plain JSON. */
-export type AnyItem = EpicItem | StoryItem;
+  | { type: 'openExternal'; url: string };

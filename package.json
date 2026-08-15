@@ -81,7 +81,7 @@
     "commands": [
       {
         "command": "reqforge.open",
-        "title": "ReqForge: Open Backlog"
+        "title": "ReqForge: Open"
       },
       {
         "command": "reqforge.setCredentials",

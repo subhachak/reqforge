@@ -82,10 +82,47 @@ if (backlog.epics[0]) {
 }
 if (backlog.epics[1]) backlog.epics[1].sync = { jiraKey: 'DEMO-9' };
 
+const complete = process.env.HARNESS_SETUP !== 'incomplete';
+const view = process.env.HARNESS_VIEW || (complete ? 'home' : 'setup');
+
 const state = {
+  view,
+  setup: {
+    baseUrl: complete ? 'https://example.atlassian.net' : '',
+    email: complete ? 'you@example.com' : '',
+    projectKey: complete ? 'KAN' : '',
+    epicIssueType: 'Epic',
+    storyIssueType: 'Story',
+    modelFamily: '',
+    hasToken: complete,
+    complete,
+    atlassian: { state: 'unknown', detail: '' },
+    model: { state: 'unknown', detail: '' }
+  },
+  recent: [
+    {
+      slug: 'sample',
+      title: backlog.source.title,
+      epics: backlog.epics.length,
+      stories: backlog.epics.reduce((n, e) => n + e.stories.length, 0),
+      unpushed: 3,
+      projectKey: backlog.target.projectKey
+    }
+  ],
   backlog,
-  available: [{ slug: 'sample', title: backlog.source.title }],
   slug: 'sample',
+  jira:
+    view === 'jira'
+      ? {
+          key: 'KAN-95',
+          url: 'https://example.atlassian.net/browse/KAN-95',
+          summary: 'Configurable Pension and Bank-Charge Rules API',
+          description:
+            '*Outcome:* Administrators can change pension rules without a code release.\n\n## Acceptance criteria\n- **Given** an authorised administrator **when** they POST a rule **then** a version id is returned\n- **Given** overlapping effective dates **when** the second is submitted **then** it is rejected',
+          issueType: 'Epic',
+          status: 'In Progress'
+        }
+      : undefined,
   busy: false,
   busyLabel: '',
   plan: undefined,
@@ -93,8 +130,7 @@ const state = {
   pendingRefine: undefined,
   jiraBrowseBase: 'https://example.atlassian.net',
   undoLabel: 'edit',
-  redoLabel: undefined,
-  canPush: true
+  redoLabel: undefined
 };
 
 const html = `<!DOCTYPE html>

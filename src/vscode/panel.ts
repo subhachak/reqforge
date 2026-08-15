@@ -6,9 +6,19 @@ import { decomposeEpics } from '../core/pipeline/decompose';
 import { executePush, planPush, type PushPlan } from '../core/pipeline/push';
 import { applyRefinement, refineBacklogItem, type LocalRefineResult } from '../core/pipeline/refineLocal';
 import { LlmUnavailableError, type AtlassianPort, type LlmPort } from '../core/ports';
-import { BacklogStore, backlogPath } from '../core/store';
-import type { HostMessage, PanelState, WebviewMessage } from '../shared/protocol';
-import { adapterContext, cfg, dataFolder } from './config';
+import { BacklogStore } from '../core/store';
+import { refineIssue } from '../core/pipeline/refine';
+import type {
+  HostMessage,
+  JiraSession,
+  PanelState,
+  RecentBacklog,
+  SettingsPatch,
+  SetupState,
+  View,
+  WebviewMessage
+} from '../shared/protocol';
+import { adapterContext, cfg, clearApiToken, dataFolder, promptForToken, updateSetting } from './config';
 import { WorkspaceFs } from './fs';
 
 /**
@@ -41,13 +51,20 @@ export class BacklogPanel {
     return BacklogPanel.current;
   }
 
+  private view: View = 'home';
   private backlog: Backlog | undefined;
   private slug: string | undefined;
+  private jira: JiraSession | undefined;
   private plan: PushPlan | undefined;
   private pendingRefine: LocalRefineResult | undefined;
   private notice: PanelState['notice'];
   private busy = false;
   private busyLabel = '';
+  /** Connection test results, only refreshed on an explicit test. */
+  private probes = {
+    atlassian: { state: 'unknown', detail: '' } as SetupState['atlassian'],
+    model: { state: 'unknown', detail: '' } as SetupState['model']
+  };
 
   /**
    * Undo history, held by the host so it survives a webview reload and covers
@@ -89,22 +106,57 @@ export class BacklogPanel {
     void this.panel.webview.postMessage(msg);
   }
 
-  private async send() {
-    const slugs = await this.store().listSlugs();
-    const available: { slug: string; title: string }[] = [];
-    for (const s of slugs) {
-      if (s === this.slug && this.backlog) {
-        available.push({ slug: s, title: this.backlog.source.title });
-      } else {
-        const b = await this.store().load(s).catch(() => undefined);
-        available.push({ slug: s, title: b?.source.title ?? s });
-      }
+  private async setupState(): Promise<SetupState> {
+    const c = cfg();
+    const baseUrl = c.get<string>('atlassian.baseUrl', '').trim();
+    const email = c.get<string>('atlassian.email', '').trim();
+    const projectKey = c.get<string>('jira.projectKey', '').trim();
+    const hasToken = Boolean(await this.ctx.secrets.get('reqforge.atlassian.apiToken'));
+    return {
+      baseUrl,
+      email,
+      projectKey,
+      epicIssueType: c.get<string>('jira.epicIssueType', 'Epic'),
+      storyIssueType: c.get<string>('jira.storyIssueType', 'Story'),
+      modelFamily: c.get<string>('llm.modelFamily', ''),
+      hasToken,
+      complete: Boolean(baseUrl && email && projectKey && hasToken),
+      atlassian: this.probes.atlassian,
+      model: this.probes.model
+    };
+  }
+
+  /** Local summaries only — nothing here talks to Jira. */
+  private async recent(): Promise<RecentBacklog[]> {
+    const out: RecentBacklog[] = [];
+    for (const slug of await this.store().listSlugs()) {
+      const b = slug === this.slug && this.backlog ? this.backlog : await this.store().load(slug).catch(() => undefined);
+      if (!b) continue;
+      const stories = b.epics.flatMap((e) => e.stories);
+      out.push({
+        slug,
+        title: b.source.title,
+        epics: b.epics.length,
+        stories: stories.length,
+        unpushed: [...b.epics, ...stories].filter((i) => !i.sync.jiraKey).length,
+        projectKey: b.target.projectKey
+      });
     }
+    return out;
+  }
+
+  private async send() {
+    const setup = await this.setupState();
+    // Setup is a hard gate: nothing else is reachable until it is complete.
+    const view: View = setup.complete ? this.view : 'setup';
 
     const state: PanelState = {
+      view,
+      setup,
+      recent: await this.recent(),
       backlog: this.backlog,
-      available,
       slug: this.slug,
+      jira: this.jira,
       busy: this.busy,
       busyLabel: this.busyLabel,
       plan: this.plan,
@@ -119,8 +171,7 @@ export class BacklogPanel {
             changed: this.pendingRefine.changed
           }
         : undefined,
-      jiraBrowseBase: cfg().get<string>('atlassian.baseUrl', '').replace(/\/+$/, ''),
-      canPush: Boolean(this.backlog?.target.projectKey),
+      jiraBrowseBase: setup.baseUrl.replace(/\/+$/, ''),
       undoLabel: this.history[this.history.length - 1]?.label,
       redoLabel: this.future[this.future.length - 1]?.label
     };
@@ -212,20 +263,69 @@ export class BacklogPanel {
 
   private async handle(msg: WebviewMessage) {
     switch (msg.type) {
+      // Deliberately does not open a backlog. The panel lands on the home
+      // screen so the user chooses what to work on, rather than being dropped
+      // into whichever file happened to sort first.
       case 'ready':
-        if (!this.backlog) {
-          const slugs = await this.store().listSlugs();
-          if (slugs.length > 0) await this.load(slugs[0]);
-        }
         await this.send();
         return;
 
-      case 'selectBacklog':
+      case 'navigate':
+        this.view = msg.view;
+        if (msg.view !== 'jira') this.jira = undefined;
+        await this.send();
+        return;
+
+      case 'openBacklog':
         await this.load(msg.slug);
+        this.view = 'backlog';
+        await this.send();
         return;
 
       case 'decompose':
         await vscode.commands.executeCommand('reqforge.decomposePrd');
+        return;
+
+      /* ------------------------------------------------------------ setup */
+
+      case 'saveSettings':
+        await this.saveSettings(msg.patch);
+        return;
+
+      case 'setToken':
+        if (await promptForToken(this.ctx)) {
+          this.probes.atlassian = { state: 'unknown', detail: '' };
+        }
+        await this.send();
+        return;
+
+      case 'clearToken':
+        await clearApiToken(this.ctx);
+        this.probes.atlassian = { state: 'unknown', detail: '' };
+        await this.send();
+        return;
+
+      case 'testConnection':
+        await this.testConnection();
+        return;
+
+      /* ------------------------------------------------------- jira refine */
+
+      case 'fetchJiraIssue':
+        await this.fetchJiraIssue(msg.key);
+        return;
+
+      case 'refineJiraIssue':
+        await this.refineJiraIssue(msg.instruction);
+        return;
+
+      case 'applyJiraRefine':
+        await this.applyJiraRefine();
+        return;
+
+      case 'discardJiraRefine':
+        if (this.jira) this.jira = { ...this.jira, pending: undefined };
+        await this.send();
         return;
 
       case 'edit':
@@ -256,16 +356,6 @@ export class BacklogPanel {
 
       case 'openExternal':
         await vscode.env.openExternal(vscode.Uri.parse(msg.url));
-        return;
-
-      case 'revealFile':
-        if (this.slug) {
-          const uri = vscode.Uri.joinPath(
-            vscode.workspace.workspaceFolders![0].uri,
-            ...backlogPath(dataFolder(), this.slug).split('/')
-          );
-          await vscode.window.showTextDocument(uri);
-        }
         return;
 
       case 'addEpic': {
@@ -347,6 +437,119 @@ export class BacklogPanel {
         await this.push(msg.only);
         return;
     }
+  }
+
+  /* ----------------------------------------------------------------- setup */
+
+  private async saveSettings(patch: SettingsPatch) {
+    // Site and account are per-user; project and issue types are per-project.
+    const scopes: Record<keyof SettingsPatch, { key: string; scope: 'global' | 'workspace' }> = {
+      baseUrl: { key: 'atlassian.baseUrl', scope: 'global' },
+      email: { key: 'atlassian.email', scope: 'global' },
+      modelFamily: { key: 'llm.modelFamily', scope: 'global' },
+      projectKey: { key: 'jira.projectKey', scope: 'workspace' },
+      epicIssueType: { key: 'jira.epicIssueType', scope: 'workspace' },
+      storyIssueType: { key: 'jira.storyIssueType', scope: 'workspace' }
+    };
+
+    for (const [field, value] of Object.entries(patch) as [keyof SettingsPatch, string][]) {
+      const target = scopes[field];
+      if (!target || value === undefined) continue;
+      const clean = field === 'baseUrl' ? value.trim().replace(/\/+$/, '') : value.trim();
+      await updateSetting(target.key, clean, target.scope);
+    }
+
+    // Anything changed here invalidates a previous test result.
+    this.probes = { atlassian: { state: 'unknown', detail: '' }, model: { state: 'unknown', detail: '' } };
+    await this.send();
+  }
+
+  private async testConnection() {
+    await this.run('Checking connections…', async () => {
+      const actx = await adapterContext(this.ctx);
+
+      const model = await registry.createLlm(actx).probe();
+      this.probes.model = { state: model.ok ? 'ok' : 'failed', detail: model.detail };
+
+      if (actx.baseUrl && actx.email && actx.apiToken) {
+        try {
+          const result = await registry.createAtlassian(actx).verifyConnection();
+          this.probes.atlassian = { state: result.ok ? 'ok' : 'failed', detail: result.detail };
+        } catch (err) {
+          this.probes.atlassian = { state: 'failed', detail: (err as Error).message };
+        }
+      } else {
+        this.probes.atlassian = { state: 'failed', detail: 'Site, email and API token are all required.' };
+      }
+    });
+  }
+
+  /* ----------------------------------------------------------- jira refine */
+
+  private async fetchJiraIssue(key: string) {
+    const trimmed = key.trim().toUpperCase();
+    if (!/^[A-Z][A-Z0-9_]+-\d+$/.test(trimmed)) {
+      this.notice = { kind: 'warn', message: `"${key}" is not a Jira issue key. Expected something like ACME-123.` };
+      await this.send();
+      return;
+    }
+
+    await this.run(`Fetching ${trimmed}…`, async () => {
+      const { atlassian } = await this.ports();
+      const issue = await atlassian.getIssue(trimmed);
+      this.jira = {
+        key: issue.key,
+        url: issue.url,
+        summary: issue.summary,
+        description: issue.description,
+        issueType: issue.issueType,
+        status: issue.status
+      };
+      this.view = 'jira';
+    });
+  }
+
+  private async refineJiraIssue(instruction: string) {
+    const session = this.jira;
+    if (!session) return;
+    await this.run(`Rewriting ${session.key}…`, async () => {
+      const { atlassian, llm } = await this.ports();
+      const result = await refineIssue(atlassian, llm, { key: session.key, instruction });
+      this.jira = {
+        ...session,
+        pending: { summary: result.after.summary, description: result.after.description, changed: result.changed }
+      };
+      if (!result.changed) {
+        this.notice = { kind: 'info', message: 'The model did not change anything meaningful.' };
+      }
+    });
+  }
+
+  private async applyJiraRefine() {
+    const session = this.jira;
+    if (!session?.pending) return;
+
+    const confirm = await vscode.window.showWarningMessage(
+      `Update ${session.key} in Jira?`,
+      { modal: true, detail: 'This overwrites the summary and description of the live issue.' },
+      'Update'
+    );
+    if (confirm !== 'Update') return;
+
+    await this.run(`Updating ${session.key}…`, async () => {
+      const { atlassian } = await this.ports();
+      await atlassian.updateIssue(session.key, {
+        summary: session.pending!.summary,
+        descriptionMarkdown: session.pending!.description
+      });
+      this.jira = {
+        ...session,
+        summary: session.pending!.summary,
+        description: session.pending!.description,
+        pending: undefined
+      };
+      this.notice = { kind: 'info', message: `${session.key} updated in Jira.` };
+    });
   }
 
   /* ------------------------------------------------------------ operations */

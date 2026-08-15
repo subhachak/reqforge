@@ -236,6 +236,30 @@ textarea { min-height: 34px; overflow: hidden; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ------------------------------------------------------------ home cards */
+
+.cards { display: flex; gap: 16px; flex-wrap: wrap; }
+.card {
+  flex: 1; min-width: 300px; display: flex; flex-direction: column;
+  border: 1px solid var(--border); border-radius: 8px; padding: 18px;
+}
+.card h3 { margin: 0 0 8px; font-size: 15px; }
+.card p { margin: 0 0 16px; color: var(--muted); }
+.card button { align-self: flex-start; }
+
+.recent {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius);
+  margin-bottom: 8px; cursor: pointer;
+}
+.recent:hover { background: var(--list-hover); }
+
+pre.readonly {
+  margin: 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  white-space: pre-wrap; word-break: break-word; max-height: 46vh; overflow-y: auto;
+  font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; color: var(--muted);
+}
+
 .empty { padding: 60px 24px; text-align: center; color: var(--muted); }
 .empty h2 { color: var(--fg); font-size: 16px; margin: 0 0 8px; }
 .empty p { max-width: 420px; margin: 0 auto 18px; }

@@ -16,16 +16,29 @@ const vscode = acquireVsCodeApi();
 const post = (msg: WebviewMessage) => vscode.postMessage(msg);
 
 const EMPTY: PanelState = {
+  view: 'setup',
+  setup: {
+    baseUrl: '',
+    email: '',
+    projectKey: '',
+    epicIssueType: 'Epic',
+    storyIssueType: 'Story',
+    modelFamily: '',
+    hasToken: false,
+    complete: false,
+    atlassian: { state: 'unknown', detail: '' },
+    model: { state: 'unknown', detail: '' }
+  },
+  recent: [],
   backlog: undefined,
-  available: [],
   slug: undefined,
+  jira: undefined,
   busy: false,
   busyLabel: '',
   plan: undefined,
   notice: undefined,
   pendingRefine: undefined,
   jiraBrowseBase: '',
-  canPush: false,
   undoLabel: undefined,
   redoLabel: undefined
 };
@@ -451,6 +464,341 @@ function EpicDetail(props: {
   );
 }
 
+/* ------------------------------------------------------------------ setup */
+
+function StatusLine({ label, probe }: { label: string; probe: { state: string; detail: string } }) {
+  const colour =
+    probe.state === 'ok' ? 'var(--green)' : probe.state === 'failed' ? 'var(--red)' : 'var(--muted)';
+  const text = probe.state === 'unknown' ? 'Not checked yet' : probe.detail;
+  return (
+    <div className="row" style={{ alignItems: 'baseline' }}>
+      <span style={{ width: 90, flex: 'none', color: 'var(--muted)', fontSize: 12 }}>{label}</span>
+      <span style={{ color: colour }}>{text}</span>
+    </div>
+  );
+}
+
+/**
+ * First-run setup. Until this is complete the rest of the panel is unreachable
+ * — half-configured tools fail later, in the middle of real work, with errors
+ * that read as bugs.
+ */
+function Setup({ state }: { state: PanelState }) {
+  const s = state.setup;
+  const [form, setForm] = useState({
+    baseUrl: s.baseUrl,
+    email: s.email,
+    projectKey: s.projectKey,
+    epicIssueType: s.epicIssueType,
+    storyIssueType: s.storyIssueType,
+    modelFamily: s.modelFamily
+  });
+
+  // Adopt host values when they change underneath us (e.g. the token prompt).
+  useEffect(() => {
+    setForm({
+      baseUrl: s.baseUrl,
+      email: s.email,
+      projectKey: s.projectKey,
+      epicIssueType: s.epicIssueType,
+      storyIssueType: s.storyIssueType,
+      modelFamily: s.modelFamily
+    });
+  }, [s.baseUrl, s.email, s.projectKey, s.epicIssueType, s.storyIssueType, s.modelFamily]);
+
+  const save = (patch: Partial<typeof form>) => {
+    setForm({ ...form, ...patch });
+    post({ type: 'saveSettings', patch });
+  };
+
+  const missing = [
+    !form.baseUrl && 'Atlassian site',
+    !form.email && 'account email',
+    !s.hasToken && 'API token',
+    !form.projectKey && 'Jira project'
+  ].filter(Boolean) as string[];
+
+  return (
+    <div className="detail" style={{ maxWidth: 720, margin: '0 auto' }}>
+      <h1 style={{ fontSize: 20, marginBottom: 4 }}>Set up ReqForge</h1>
+      <p style={{ color: 'var(--muted)', marginTop: 0 }}>
+        ReqForge reads requirements from Confluence and writes epics and stories to Jira. It needs to know
+        where those live and who it should act as.
+      </p>
+
+      {!s.complete && missing.length > 0 && (
+        <div className="notice warn" style={{ borderRadius: 6, border: '1px solid var(--border)' }}>
+          <div className="msg">
+            Still needed: <strong>{missing.join(', ')}</strong>
+            <div className="hint">Everything else stays locked until these are filled in.</div>
+          </div>
+        </div>
+      )}
+
+      <div className="section-head">
+        <h2>Atlassian</h2>
+      </div>
+
+      <Field label="Site" hint="the address you use to open Jira in a browser">
+        <input
+          value={form.baseUrl}
+          placeholder="https://yourcompany.atlassian.net"
+          onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
+          onBlur={(e) => save({ baseUrl: e.target.value })}
+        />
+      </Field>
+
+      <Field label="Account email" hint="the account the API token belongs to">
+        <input
+          value={form.email}
+          placeholder="you@yourcompany.com"
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          onBlur={(e) => save({ email: e.target.value })}
+        />
+      </Field>
+
+      <Field label="API token" hint="stored in your operating system keychain, never in a settings file">
+        <div className="chip-row">
+          <span className="chip" style={{ background: s.hasToken ? 'var(--green)' : 'var(--secondary)', color: s.hasToken ? '#000' : undefined }}>
+            {s.hasToken ? 'Token saved' : 'No token yet'}
+          </span>
+          <button onClick={() => post({ type: 'setToken' })}>{s.hasToken ? 'Replace' : 'Add token'}</button>
+          {s.hasToken && (
+            <button className="ghost danger" onClick={() => post({ type: 'clearToken' })}>
+              Remove
+            </button>
+          )}
+          <a
+            className="chip link"
+            onClick={() => post({ type: 'openExternal', url: 'https://id.atlassian.com/manage-profile/security/api-tokens' })}
+          >
+            Create one ↗
+          </a>
+        </div>
+      </Field>
+
+      <div className="section-head">
+        <h2>Jira project</h2>
+      </div>
+
+      <Field label="Project key" hint="the prefix on issue numbers, e.g. ACME in ACME-123">
+        <input
+          value={form.projectKey}
+          placeholder="ACME"
+          onChange={(e) => setForm({ ...form, projectKey: e.target.value.toUpperCase() })}
+          onBlur={(e) => save({ projectKey: e.target.value.toUpperCase() })}
+        />
+      </Field>
+
+      <div className="row">
+        <div style={{ flex: 1 }}>
+          <Field label="Epic issue type">
+            <input
+              value={form.epicIssueType}
+              onChange={(e) => setForm({ ...form, epicIssueType: e.target.value })}
+              onBlur={(e) => save({ epicIssueType: e.target.value })}
+            />
+          </Field>
+        </div>
+        <div style={{ flex: 1 }}>
+          <Field label="Story issue type" hint="some projects call this User Story">
+            <input
+              value={form.storyIssueType}
+              onChange={(e) => setForm({ ...form, storyIssueType: e.target.value })}
+              onBlur={(e) => save({ storyIssueType: e.target.value })}
+            />
+          </Field>
+        </div>
+      </div>
+
+      <div className="section-head">
+        <h2>Language model</h2>
+      </div>
+
+      <Field label="Preferred model" hint="leave blank to use whichever Copilot model has the largest context">
+        <input
+          value={form.modelFamily}
+          placeholder="(automatic)"
+          onChange={(e) => setForm({ ...form, modelFamily: e.target.value })}
+          onBlur={(e) => save({ modelFamily: e.target.value })}
+        />
+      </Field>
+
+      <div className="section-head">
+        <h2>Check</h2>
+        <div className="spacer" />
+        <button disabled={state.busy} onClick={() => post({ type: 'testConnection' })}>
+          Test connections
+        </button>
+      </div>
+
+      <StatusLine label="Atlassian" probe={s.atlassian} />
+      <StatusLine label="Copilot" probe={s.model} />
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 26, marginBottom: 40 }}>
+        <button className="primary" disabled={!s.complete} onClick={() => post({ type: 'navigate', view: 'home' })}>
+          {s.complete ? 'Done — continue' : 'Fill in the fields above to continue'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------- home */
+
+/**
+ * Deliberately does not open anything on its own. The user says what they came
+ * to do; nothing is fetched from Jira until they ask for it.
+ */
+function Home({ state }: { state: PanelState }) {
+  const [issueKey, setIssueKey] = useState('');
+
+  return (
+    <div className="detail" style={{ maxWidth: 860, margin: '0 auto' }}>
+      <h1 style={{ fontSize: 20, marginBottom: 4 }}>What would you like to do?</h1>
+      <p style={{ color: 'var(--muted)', marginTop: 0, marginBottom: 24 }}>
+        Sending to <strong>{state.setup.projectKey}</strong> on {state.setup.baseUrl.replace(/^https?:\/\//, '')}.
+      </p>
+
+      <div className="cards">
+        <div className="card">
+          <h3>Start from a PRD</h3>
+          <p>
+            Point ReqForge at a Confluence page. It proposes a set of epics, flags what the document leaves
+            unresolved, and you review everything before anything reaches Jira.
+          </p>
+          <button className="primary" onClick={() => post({ type: 'decompose' })}>
+            Choose a Confluence page
+          </button>
+        </div>
+
+        <div className="card">
+          <h3>Update an existing Jira issue</h3>
+          <p>
+            Pull in an epic or story that already exists, describe the change you want in plain English, and
+            review the rewrite before it is applied.
+          </p>
+          <div className="refine" style={{ marginTop: 'auto' }}>
+            <input
+              value={issueKey}
+              placeholder={`${state.setup.projectKey || 'ACME'}-123`}
+              onChange={(e) => setIssueKey(e.target.value.toUpperCase())}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && issueKey.trim()) post({ type: 'fetchJiraIssue', key: issueKey.trim() });
+              }}
+            />
+            <button
+              disabled={state.busy || !issueKey.trim()}
+              onClick={() => post({ type: 'fetchJiraIssue', key: issueKey.trim() })}
+            >
+              Fetch
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {state.recent.length > 0 && (
+        <>
+          <div className="section-head">
+            <h2>Pick up where you left off</h2>
+            <span style={{ color: 'var(--muted)', fontSize: 12 }}>saved on this machine</span>
+          </div>
+          {state.recent.map((r) => (
+            <div key={r.slug} className="recent" onClick={() => post({ type: 'openBacklog', slug: r.slug })}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 500 }}>{r.title}</div>
+                <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+                  {r.epics} epics · {r.stories} stories · {r.projectKey}
+                </div>
+              </div>
+              {r.unpushed > 0 && <span className="chip">{r.unpushed} not sent</span>}
+              <span style={{ color: 'var(--muted)' }}>›</span>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------- jira view */
+
+function JiraView({ state }: { state: PanelState }) {
+  const j = state.jira!;
+  const [instruction, setInstruction] = useState('');
+
+  return (
+    <div className="detail" style={{ maxWidth: 900, margin: '0 auto' }}>
+      <div className="chip-row" style={{ marginBottom: 14 }}>
+        <a className="chip link" onClick={() => post({ type: 'openExternal', url: j.url })}>
+          {j.key} ↗
+        </a>
+        <span className="chip">{j.issueType}</span>
+        <span className="chip">{j.status}</span>
+      </div>
+
+      <h1 style={{ fontSize: 20, marginTop: 0 }}>{j.summary}</h1>
+
+      {j.pending ? (
+        <>
+          <div className="section-head">
+            <h2>Proposed rewrite</h2>
+          </div>
+          {!j.pending.changed && (
+            <p style={{ color: 'var(--muted)' }}>The model did not change anything meaningful.</p>
+          )}
+          <div className="diff">
+            <div className="side">
+              <h3>Current</h3>
+              <pre>{`${j.summary}\n\n${j.description}`}</pre>
+            </div>
+            <div className="side">
+              <h3>Proposed</h3>
+              <pre>{`${j.pending.summary}\n\n${j.pending.description}`}</pre>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+            <button onClick={() => post({ type: 'discardJiraRefine' })}>Discard</button>
+            <button className="primary" disabled={state.busy} onClick={() => post({ type: 'applyJiraRefine' })}>
+              Apply to {j.key}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="section-head">
+            <h2>Current description</h2>
+          </div>
+          <pre className="readonly">{j.description || '(empty)'}</pre>
+          <div className="refine">
+            <input
+              value={instruction}
+              placeholder="What should change? e.g. add acceptance criteria for the failure cases"
+              onChange={(e) => setInstruction(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && instruction.trim()) {
+                  post({ type: 'refineJiraIssue', instruction: instruction.trim() });
+                  setInstruction('');
+                }
+              }}
+            />
+            <button
+              className="primary"
+              disabled={state.busy || !instruction.trim()}
+              onClick={() => {
+                post({ type: 'refineJiraIssue', instruction: instruction.trim() });
+                setInstruction('');
+              }}
+            >
+              Rewrite
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------- modals */
 
 function RefineModal({ state }: { state: PanelState }) {
@@ -575,7 +923,7 @@ function App() {
         setDraft(undefined); // host is authoritative; local edits are flushed before actions
         const epics = msg.state.backlog?.epics ?? [];
         setSelected((cur) => (cur && epics.some((e) => e.ref === cur) ? cur : epics[0]?.ref));
-        setIncluded((cur) => (cur.size === 0 ? new Set(epics.map((e) => e.ref)) : cur));
+        setIncluded(new Set(epics.map((e) => e.ref)));
       }
     };
     window.addEventListener('message', onMessage);
@@ -639,17 +987,100 @@ function App() {
     };
   }, [epics]);
 
+  /* Chrome shared by every view: the notice banner, busy overlay, and a way
+     back to the home screen. Setup deliberately has no escape hatch. */
+  const chrome = (title: string, sub: string, actions: React.ReactNode) => (
+    <div className="header">
+      {state.view !== 'setup' && state.view !== 'home' && (
+        <button className="ghost" title="Back" onClick={() => act({ type: 'navigate', view: 'home' })}>
+          ‹ Back
+        </button>
+      )}
+      <div style={{ minWidth: 0 }}>
+        <h1>{title}</h1>
+        <div className="sub">{sub}</div>
+      </div>
+      <div className="spacer" />
+      <div className="actions">{actions}</div>
+    </div>
+  );
+
+  const banner = state.notice && (
+    <div className={`notice ${state.notice.kind}`}>
+      <div className="msg">
+        <div>{state.notice.message}</div>
+        {state.notice.hint && <div className="hint">{state.notice.hint}</div>}
+      </div>
+      <button className="ghost" onClick={() => post({ type: 'dismissNotice' })}>
+        ✕
+      </button>
+    </div>
+  );
+
+  const overlay = state.busy && (
+    <div className="busy">
+      <div className="spinner" />
+      <div>{state.busyLabel || 'Working…'}</div>
+    </div>
+  );
+
+  if (state.view === 'setup') {
+    return (
+      <div className="app">
+        {chrome('ReqForge', 'First-time setup', null)}
+        {banner}
+        <div className="body">
+          <Setup state={state} />
+        </div>
+        {overlay}
+      </div>
+    );
+  }
+
+  if (state.view === 'home') {
+    return (
+      <div className="app">
+        {chrome(
+          'ReqForge',
+          'Requirements into Jira',
+          <button className="ghost" onClick={() => act({ type: 'navigate', view: 'setup' })}>
+            ⚙ Settings
+          </button>
+        )}
+        {banner}
+        <div className="body">
+          <Home state={state} />
+        </div>
+        {overlay}
+      </div>
+    );
+  }
+
+  if (state.view === 'jira') {
+    return (
+      <div className="app">
+        {chrome(
+          state.jira?.key ?? 'Jira issue',
+          'Update an existing issue',
+          <button className="ghost" onClick={() => act({ type: 'navigate', view: 'setup' })}>
+            ⚙ Settings
+          </button>
+        )}
+        {banner}
+        <div className="body">{state.jira ? <JiraView state={state} /> : <div className="empty">Nothing loaded.</div>}</div>
+        {overlay}
+      </div>
+    );
+  }
+
   if (!state.backlog) {
     return (
       <div className="app">
+        {chrome('ReqForge', '', null)}
         <div className="empty">
-          <h2>No requirements loaded yet</h2>
-          <p>
-            Start from a Confluence page and ReqForge will propose a set of epics you can review, edit, and send
-            to Jira.
-          </p>
-          <button className="primary" onClick={() => post({ type: 'decompose' })}>
-            Start from a Confluence page
+          <h2>Nothing loaded</h2>
+          <button className="primary" onClick={() => act({ type: 'navigate', view: 'home' })}>
+            Back to start
           </button>
         </div>
       </div>
@@ -661,7 +1092,10 @@ function App() {
   return (
     <div className="app">
       <div className="header">
-        <div>
+        <button className="ghost" title="Back" onClick={() => act({ type: 'navigate', view: 'home' })}>
+          ‹ Back
+        </button>
+        <div style={{ minWidth: 0 }}>
           <h1>{b.source.title}</h1>
           <div className="sub">
             {totals.epics} epics · {totals.stories} stories · {totals.points} points · sending to{' '}
@@ -686,22 +1120,11 @@ function App() {
           >
             ↷ Redo
           </button>
-          {state.available.length > 1 && (
-            <select
-              style={{ width: 200 }}
-              value={state.slug}
-              onChange={(e) => act({ type: 'selectBacklog', slug: e.target.value })}
-            >
-              {state.available.map((a) => (
-                <option key={a.slug} value={a.slug}>
-                  {a.title}
-                </option>
-              ))}
-            </select>
-          )}
-          <button onClick={() => act({ type: 'decompose' })}>New from Confluence</button>
+          <button className="ghost" onClick={() => act({ type: 'navigate', view: 'setup' })}>
+            ⚙
+          </button>
           <button
-            disabled={state.busy || !state.canPush}
+            disabled={state.busy}
             className="primary"
             onClick={() => act({ type: 'previewPush', only: onlyRefs })}
           >
@@ -710,17 +1133,7 @@ function App() {
         </div>
       </div>
 
-      {state.notice && (
-        <div className={`notice ${state.notice.kind}`}>
-          <div className="msg">
-            <div>{state.notice.message}</div>
-            {state.notice.hint && <div className="hint">{state.notice.hint}</div>}
-          </div>
-          <button className="ghost" onClick={() => post({ type: 'dismissNotice' })}>
-            ✕
-          </button>
-        </div>
-      )}
+      {banner}
 
       {(b.prd.openQuestions.length > 0 || b.prd.risks.length > 0) && (
         <div className="insights">
@@ -827,13 +1240,7 @@ function App() {
 
       {state.pendingRefine && <RefineModal state={state} />}
       {state.plan && <PlanModal state={state} only={onlyRefs} />}
-
-      {state.busy && (
-        <div className="busy">
-          <div className="spinner" />
-          <div>{state.busyLabel || 'Working…'}</div>
-        </div>
-      )}
+      {overlay}
     </div>
   );
 }

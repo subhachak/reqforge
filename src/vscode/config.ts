@@ -93,6 +93,25 @@ export async function ensureConfigured(ctx: vscode.ExtensionContext): Promise<bo
   return true;
 }
 
+export function hasWorkspace(): boolean {
+  return (vscode.workspace.workspaceFolders?.length ?? 0) > 0;
+}
+
+/**
+ * Writes a setting, preferring workspace scope for anything project-specific
+ * so two projects in two folders do not fight over one value. Falls back to
+ * global when there is no workspace to write to.
+ */
+export async function updateSetting(key: string, value: unknown, scope: 'global' | 'workspace'): Promise<void> {
+  const target =
+    scope === 'workspace' && hasWorkspace() ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+  try {
+    await cfg().update(key, value, target);
+  } catch {
+    await cfg().update(key, value, vscode.ConfigurationTarget.Global);
+  }
+}
+
 export async function promptForToken(ctx: vscode.ExtensionContext): Promise<boolean> {
   const token = await vscode.window.showInputBox({
     title: 'ReqForge — Atlassian API token',

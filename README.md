@@ -14,18 +14,26 @@ npm install && npm run check
 
 Then press <kbd>F5</kbd> in VS Code ("Run ReqForge (restricted profile)") to launch an Extension Development Host.
 
-In the dev host, **open a folder first** — the backlog is stored workspace-relative — then:
+In the dev host, **open a folder first** — the backlog is stored workspace-relative — then
+<kbd>⌘⇧P</kbd> → **`ReqForge: Open`**. That is the only command anybody needs.
 
-1. `ReqForge: Check Language Model Availability` — **run this first**, see the spike below.
-2. `ReqForge: Decompose Confluence PRD into Epics` — prompts for anything unconfigured.
+**First run lands on setup and stays there.** Site, account email, API token and Jira project are
+required before any other view is reachable — the host recomputes that gate on every render, so
+it cannot be routed around from the webview. A half-configured tool fails later, in the middle of
+real work, with errors that read like bugs.
 
-That lands you in the review panel, which is the whole product as far as a product owner is
-concerned: epics and stories, inline editing, plain-English rewrite requests, and a reviewed
-send to Jira. `ReqForge: Open Backlog` reopens it.
+**Once configured, the home screen offers two entry points and loads nothing on its own:**
+
+- **Start from a PRD** — pick a Confluence page, get proposed epics, review, send to Jira.
+- **Update an existing Jira issue** — type a key, pull the issue in, describe the change in plain
+  English, review the rewrite, apply it.
+
+Backlogs already saved on this machine are listed underneath as a "pick up where you left off"
+list. That list is read from local files; nothing queries Jira until you ask it to.
 
 The command palette entries (`Decompose Epic into Stories`, `Preview Push`, `Push Backlog to
-Jira`, `Refine Existing Issue`) still exist as power-user shortcuts and are what the headless
-paths are built on, but nobody needs them to use the tool.
+Jira`, `Refine Existing Issue`, `Check Language Model Availability`) still exist as power-user
+shortcuts and are what the headless paths are built on, but nobody needs them to use the tool.
 
 ### Working on the UI without an extension host
 
@@ -37,6 +45,13 @@ Serves the built webview at `http://localhost:5177` with `acquireVsCodeApi()` st
 backlog loaded. Posted messages are logged bottom-right; press `t` to toggle light theme. Rebuild
 (`npm run build`) and reload to see changes. This is much faster than round-tripping through the
 Extension Development Host, and it is how the layout bugs in the autosizing fields were found.
+
+Two environment variables pick which screen to inspect:
+
+```bash
+HARNESS_SETUP=incomplete npm run harness          # the first-run setup gate
+HARNESS_VIEW=jira npm run harness                 # the update-an-issue view
+```
 
 ---
 
