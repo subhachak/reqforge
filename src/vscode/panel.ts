@@ -7,7 +7,7 @@ import { executePush, planPush, type PushPlan } from '../core/pipeline/push';
 import { applyRefinement, refineBacklogItem, type LocalRefineResult } from '../core/pipeline/refineLocal';
 import { LlmUnavailableError, type AtlassianPort, type LlmPort } from '../core/ports';
 import { BacklogStore } from '../core/store';
-import { refineIssue } from '../core/pipeline/refine';
+import { backlogFromJiraIssue, markAsSynced } from '../core/pipeline/fromJira';
 import {
   ALL_CRITERIA,
   DEFAULT_RUBRIC,
@@ -31,7 +31,6 @@ import {
 import { epicFingerprint, storyFingerprint } from '../core/model';
 import type {
   HostMessage,
-  JiraSession,
   PanelState,
   RecentBacklog,
   SettingsPatch,
@@ -75,7 +74,6 @@ export class BacklogPanel {
   private view: View = 'home';
   private backlog: Backlog | undefined;
   private slug: string | undefined;
-  private jira: JiraSession | undefined;
   private plan: PushPlan | undefined;
   private pendingRefine: LocalRefineResult | undefined;
   private notice: PanelState['notice'];
@@ -185,7 +183,6 @@ export class BacklogPanel {
       recent: await this.recent(),
       backlog: this.backlog,
       slug: this.slug,
-      jira: this.jira,
       busy: this.busy,
       busyLabel: this.busyLabel,
       plan: this.plan,
@@ -460,7 +457,6 @@ export class BacklogPanel {
 
       case 'navigate':
         this.view = msg.view;
-        if (msg.view !== 'jira') this.jira = undefined;
         await this.send();
         return;
 
@@ -507,18 +503,6 @@ export class BacklogPanel {
         await this.fetchJiraIssue(msg.key);
         return;
 
-      case 'refineJiraIssue':
-        await this.refineJiraIssue(msg.instruction);
-        return;
-
-      case 'applyJiraRefine':
-        await this.applyJiraRefine();
-        return;
-
-      case 'discardJiraRefine':
-        if (this.jira) this.jira = { ...this.jira, pending: undefined };
-        await this.send();
-        return;
 
       case 'edit': {
         if (!this.backlog) return;
@@ -774,6 +758,14 @@ export class BacklogPanel {
 
   /* ----------------------------------------------------------- jira refine */
 
+  /**
+   * Pulls an existing epic in and turns it into a working backlog.
+   *
+   * Everything downstream — the structured editor, the rubric, story
+   * generation, undo, push-as-update — is the same code the PRD path uses.
+   * Building a second editor for "edit an existing issue" would have meant
+   * maintaining two of everything.
+   */
   private async fetchJiraIssue(key: string) {
     const trimmed = key.trim().toUpperCase();
     if (!/^[A-Z][A-Z0-9_]+-\d+$/.test(trimmed)) {
@@ -784,59 +776,45 @@ export class BacklogPanel {
 
     await this.run(`Fetching ${trimmed}…`, async () => {
       const { atlassian } = await this.ports();
-      const issue = await atlassian.getIssue(trimmed);
-      this.jira = {
-        key: issue.key,
-        url: issue.url,
-        summary: issue.summary,
-        description: issue.description,
-        issueType: issue.issueType,
-        status: issue.status
-      };
-      this.view = 'jira';
-    });
-  }
+      const c = cfg();
+      const result = await backlogFromJiraIssue(
+        atlassian,
+        trimmed,
+        {
+          projectKey: c.get<string>('jira.projectKey', ''),
+          epicIssueType: c.get<string>('jira.epicIssueType', 'Epic'),
+          storyIssueType: c.get<string>('jira.storyIssueType', 'Story')
+        },
+        {
+          progress: {
+            report: (message) => {
+              this.busyLabel = message;
+              void this.send();
+            }
+          }
+        }
+      );
 
-  private async refineJiraIssue(instruction: string) {
-    const session = this.jira;
-    if (!session) return;
-    await this.run(`Rewriting ${session.key}…`, async () => {
-      const { atlassian, llm } = await this.ports();
-      const result = await refineIssue(atlassian, llm, { key: session.key, instruction });
-      this.jira = {
-        ...session,
-        pending: { summary: result.after.summary, description: result.after.description, changed: result.changed }
-      };
-      if (!result.changed) {
-        this.notice = { kind: 'info', message: 'The model did not change anything meaningful.' };
-      }
-    });
-  }
+      // Nothing has been edited yet, so record it as matching Jira. Otherwise
+      // the panel would open claiming everything needs sending.
+      markAsSynced(result.backlog);
 
-  private async applyJiraRefine() {
-    const session = this.jira;
-    if (!session?.pending) return;
+      await this.store().save(result.slug, result.backlog);
+      await this.load(result.slug);
+      this.view = 'backlog';
+      this.onChanged();
 
-    const confirm = await vscode.window.showWarningMessage(
-      `Update ${session.key} in Jira?`,
-      { modal: true, detail: 'This overwrites the summary and description of the live issue.' },
-      'Update'
-    );
-    if (confirm !== 'Update') return;
-
-    await this.run(`Updating ${session.key}…`, async () => {
-      const { atlassian } = await this.ports();
-      await atlassian.updateIssue(session.key, {
-        summary: session.pending!.summary,
-        descriptionMarkdown: session.pending!.description
-      });
-      this.jira = {
-        ...session,
-        summary: session.pending!.summary,
-        description: session.pending!.description,
-        pending: undefined
-      };
-      this.notice = { kind: 'info', message: `${session.key} updated in Jira.` };
+      const stories = result.backlog.epics[0]?.stories.length ?? 0;
+      this.notice = result.unstructured
+        ? {
+            kind: 'warn',
+            message: `${trimmed} was not created by ReqForge, so it has no structure to read back.`,
+            hint: 'Its description is in the Description field. Fill in the outcome and acceptance criteria, or use Fix with AI.'
+          }
+        : {
+            kind: 'info',
+            message: `Loaded ${trimmed}${stories ? ` and ${stories} stor${stories === 1 ? 'y' : 'ies'}` : ''}.`
+          };
     });
   }
 

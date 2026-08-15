@@ -92,7 +92,7 @@ export const EpicItemSchema = EpicProposalSchema.extend({
 export const BacklogSchema = z.object({
   version: z.literal(1),
   source: z.object({
-    kind: z.literal('confluence'),
+    kind: z.enum(['confluence', 'jira']),
     pageId: z.string(),
     title: z.string(),
     url: z.string(),

@@ -22,7 +22,9 @@ export interface Backlog {
   /** Schema version of this file, so we can migrate later. */
   version: 1;
   source: {
-    kind: 'confluence';
+    /** Where the backlog came from: a PRD page, or an existing Jira epic. */
+    kind: 'confluence' | 'jira';
+    /** Confluence page id, or the Jira key when kind is 'jira'. */
     pageId: string;
     title: string;
     url: string;

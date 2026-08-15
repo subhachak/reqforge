@@ -10,7 +10,7 @@ import type { BacklogQuality, CriterionDef } from '../core/rubric/index';
  * re-renders whatever state comes back; it never persists anything.
  */
 
-export type View = 'setup' | 'home' | 'backlog' | 'jira';
+export type View = 'setup' | 'home' | 'backlog';
 
 /**
  * Settings mirrored into the panel. The API token is deliberately absent —
@@ -41,17 +41,6 @@ export interface RecentBacklog {
   projectKey: string;
 }
 
-/** A Jira issue pulled in for refinement, outside any backlog. */
-export interface JiraSession {
-  key: string;
-  url: string;
-  summary: string;
-  description: string;
-  issueType: string;
-  status: string;
-  pending?: { summary: string; description: string; changed: boolean };
-}
-
 export interface PanelState {
   view: View;
   setup: SetupState;
@@ -59,7 +48,6 @@ export interface PanelState {
 
   backlog: Backlog | undefined;
   slug: string | undefined;
-  jira: JiraSession | undefined;
 
   busy: boolean;
   busyLabel: string;
@@ -105,11 +93,8 @@ export type WebviewMessage =
   | { type: 'decompose' }
   | { type: 'openBacklog'; slug: string }
   | { type: 'deleteBacklog'; slug: string }
-  /* jira refine */
+  /* pull an existing epic in as a backlog */
   | { type: 'fetchJiraIssue'; key: string }
-  | { type: 'refineJiraIssue'; instruction: string }
-  | { type: 'applyJiraRefine' }
-  | { type: 'discardJiraRefine' }
   /* backlog */
   /** `slug` identifies the backlog these epics were edited against. The host
    *  discards the message if a different backlog is now loaded. */

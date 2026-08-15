@@ -34,7 +34,6 @@ const EMPTY: PanelState = {
   recent: [],
   backlog: undefined,
   slug: undefined,
-  jira: undefined,
   busy: false,
   busyLabel: '',
   plan: undefined,
@@ -990,10 +989,10 @@ function Home({
         </div>
 
         <div className="card">
-          <h3>Update an existing Jira issue</h3>
+          <h3>Work on an existing epic</h3>
           <p>
-            Pull in an epic or story that already exists, describe the change you want in plain English, and
-            review the rewrite before it is applied.
+            Pull an epic that already exists in Jira, with its stories, into the same editor. Change it,
+            check it against the rubric, generate or add stories, then send your changes back.
           </p>
           <div className="refine" style={{ marginTop: 'auto' }}>
             <input
@@ -1008,7 +1007,7 @@ function Home({
               disabled={state.busy || !issueKey.trim()}
               onClick={() => post({ type: 'fetchJiraIssue', key: issueKey.trim() })}
             >
-              Fetch
+              Open
             </button>
           </div>
         </div>
@@ -1042,84 +1041,6 @@ function Home({
               <span style={{ color: 'var(--muted)' }}>›</span>
             </div>
           ))}
-        </>
-      )}
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------- jira view */
-
-function JiraView({ state }: { state: PanelState }) {
-  const j = state.jira!;
-  const [instruction, setInstruction] = useState('');
-
-  return (
-    <div className="detail" style={{ maxWidth: 900, margin: '0 auto' }}>
-      <div className="chip-row" style={{ marginBottom: 14 }}>
-        <a className="chip link" onClick={() => post({ type: 'openExternal', url: j.url })}>
-          {j.key} ↗
-        </a>
-        <span className="chip">{j.issueType}</span>
-        <span className="chip">{j.status}</span>
-      </div>
-
-      <h1 style={{ fontSize: 20, marginTop: 0 }}>{j.summary}</h1>
-
-      {j.pending ? (
-        <>
-          <div className="section-head">
-            <h2>Proposed rewrite</h2>
-          </div>
-          {!j.pending.changed && (
-            <p style={{ color: 'var(--muted)' }}>The model did not change anything meaningful.</p>
-          )}
-          <div className="diff">
-            <div className="side">
-              <h3>Current</h3>
-              <pre>{`${j.summary}\n\n${j.description}`}</pre>
-            </div>
-            <div className="side">
-              <h3>Proposed</h3>
-              <pre>{`${j.pending.summary}\n\n${j.pending.description}`}</pre>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-            <button onClick={() => post({ type: 'discardJiraRefine' })}>Discard</button>
-            <button className="primary" disabled={state.busy} onClick={() => post({ type: 'applyJiraRefine' })}>
-              Apply to {j.key}
-            </button>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="section-head">
-            <h2>Current description</h2>
-          </div>
-          <pre className="readonly">{j.description || '(empty)'}</pre>
-          <div className="refine">
-            <input
-              value={instruction}
-              placeholder="What should change? e.g. add acceptance criteria for the failure cases"
-              onChange={(e) => setInstruction(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && instruction.trim()) {
-                  post({ type: 'refineJiraIssue', instruction: instruction.trim() });
-                  setInstruction('');
-                }
-              }}
-            />
-            <button
-              className="primary"
-              disabled={state.busy || !instruction.trim()}
-              onClick={() => {
-                post({ type: 'refineJiraIssue', instruction: instruction.trim() });
-                setInstruction('');
-              }}
-            >
-              Rewrite
-            </button>
-          </div>
         </>
       )}
     </div>
@@ -1439,23 +1360,6 @@ function App() {
             }}
           />
         </div>
-        {overlay}
-      </div>
-    );
-  }
-
-  if (state.view === 'jira') {
-    return (
-      <div className="app">
-        {chrome(
-          state.jira?.key ?? 'Jira issue',
-          'Update an existing issue',
-          <button className="ghost" onClick={() => act({ type: 'navigate', view: 'setup' })}>
-            ⚙ Settings
-          </button>
-        )}
-        {banner}
-        <div className="body">{state.jira ? <JiraView state={state} /> : <div className="empty">Nothing loaded.</div>}</div>
         {overlay}
       </div>
     );

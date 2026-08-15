@@ -25,8 +25,9 @@ real work, with errors that read like bugs.
 **Once configured, the home screen offers two entry points and loads nothing on its own:**
 
 - **Start from a PRD** — pick a Confluence page, get proposed epics, review, send to Jira.
-- **Update an existing Jira issue** — type a key, pull the issue in, describe the change in plain
-  English, review the rewrite, apply it.
+- **Work on an existing epic** — type a Jira key. The epic and its stories are pulled in and
+  become a backlog, so the same editor, rubric, story generation and push apply. Changes go back
+  as updates.
 
 Backlogs already saved on this machine are listed underneath as a "pick up where you left off"
 list. That list is read from local files; nothing queries Jira until you ask it to.
@@ -299,6 +300,32 @@ rules:
 "Create rubric file" in the panel writes a commented starting point listing every rule and
 criterion id. The client's Definition of Ready then lives in git and gets reviewed like anything
 else — which is also the mechanism that makes this reusable across clients.
+
+## Working on an epic that already exists
+
+Fetching a Jira epic does not open a second editor. The issue and its children are parsed back
+into the same `Backlog` shape the PRD path produces, which means everything built for that path
+applies unchanged: structured fields, the rubric, "generate stories", "add story", undo, and a
+push that updates rather than creates.
+
+That works because a description ReqForge wrote is structured markdown, and `parseIssue.ts` is the
+exact inverse of the renderers. The round trip is the contract — render an epic, parse it back,
+and every field must survive — so it is covered by 20 tests. Without them, editing an existing
+epic would quietly drop a field the first time somebody saved.
+
+An issue **nobody generated** has no structure to read back. Its description lands in the
+description field, acceptance criteria come back empty, and the rubric immediately says so. That
+is the right answer: a hand-written epic with no testable criteria genuinely does not have any.
+The panel says as much when it loads one.
+
+Two details worth knowing:
+
+- Children are read with one `parent = KEY` search returning full detail, not a search followed by
+  a fetch per result — an epic with twenty stories would otherwise cost twenty-one calls and trip
+  the rate limiter on a small tenant. Projects that do not model children as `parent` lose the
+  stories, not the whole operation.
+- Everything is marked as matching Jira on arrival, so the panel does not open claiming that an
+  epic you have not touched needs sending.
 
 ## The pipeline
 

@@ -11,6 +11,7 @@ export type Capability =
   | 'jira.update'
   | 'jira.search'
   | 'jira.createmeta'
+  | 'jira.children'
   | 'jira.bulkCreate';
 
 export interface PageDoc {
@@ -89,6 +90,8 @@ export interface AtlassianPort {
   updateIssue(key: string, patch: IssuePatch): Promise<void>;
   getIssue(key: string): Promise<IssueDetail>;
   searchIssues(jql: string, max?: number): Promise<IssueRef[]>;
+  /** Like searchIssues but returns full detail, for pulling an epic's children in one call. */
+  searchIssueDetails(jql: string, max?: number): Promise<IssueDetail[]>;
 }
 
 /* ---------------------------------------------------------------- LLM port */

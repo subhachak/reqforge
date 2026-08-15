@@ -27,6 +27,8 @@ export { evaluateBacklog, scoreCriteria, fixInstruction, cacheKey, overrideKey }
 export { DEFAULT_RUBRIC } from '${path.resolve('src/core/rubric/types.ts')}';
 export { RULE_IDS } from '${path.resolve('src/core/rubric/rules.ts')}';
 export { qualityLabels, qualityNote, staleQualityLabels, qualityLabelVocabulary } from '${path.resolve('src/core/rubric/labels.ts')}';
+export { parseEpicMarkdown, parseStoryMarkdown } from '${path.resolve('src/core/pipeline/parseIssue.ts')}';
+export { storyToMarkdown } from '${path.resolve('src/core/model.ts')}';
 export { STORY_CRITERIA, EPIC_CRITERIA } from '${path.resolve('src/core/rubric/criteria.ts')}';
 `
 );
@@ -482,6 +484,63 @@ check('a structurally broken item still fails under the defaults',
 check('rubric exposes every rule id for config', m.RULE_IDS.length >= 18 && m.RULE_IDS.includes('generic-persona'));
 check('INVEST is complete and correctly named',
   ['Independent','Negotiable','Valuable','Estimable','Small','Testable'].every((n) => m.STORY_CRITERIA.some((c) => c.name === n)));
+
+/* ----------------------------------------- reading an issue back into shape */
+
+{
+  // The round trip is the contract: anything we render into a Jira description
+  // must come back as the same structure, or "edit an existing epic" silently
+  // loses fields the moment somebody saves.
+  const rendered = m.epicToMarkdown(goodEpic);
+  const back = m.parseEpicMarkdown('KAN-95', goodEpic.title, rendered);
+
+  check('round trip epic: title', back.title === goodEpic.title);
+  check('round trip epic: outcome', back.outcome === goodEpic.outcome, back.outcome);
+  check('round trip epic: description', back.description === goodEpic.description, back.description);
+  check('round trip epic: in scope', back.inScope.join('|') === goodEpic.inScope.join('|'), back.inScope.join('|'));
+  check('round trip epic: out of scope', back.outOfScope.join('|') === goodEpic.outOfScope.join('|'));
+  check('round trip epic: acceptance criteria',
+    JSON.stringify(back.acceptanceCriteria) === JSON.stringify(goodEpic.acceptanceCriteria),
+    JSON.stringify(back.acceptanceCriteria));
+  check('round trip epic: sizing', back.sizing === goodEpic.sizing);
+  check('round trip epic: ref comes from the issue key', back.ref === 'kan-95');
+
+  const richEpic = { ...goodEpic, openQuestions: ['Who owns it?'], dependsOn: ['other-epic'], sizing: 'XL' };
+  const richBack = m.parseEpicMarkdown('KAN-1', richEpic.title, m.epicToMarkdown(richEpic));
+  check('round trip epic: open questions', richBack.openQuestions.join('|') === 'Who owns it?');
+  check('round trip epic: dependsOn', richBack.dependsOn.join('|') === 'other-epic');
+  check('round trip epic: XL sizing survives', richBack.sizing === 'XL');
+
+  const st = m.parseStoryMarkdown('KAN-96', goodStory.title, m.storyToMarkdown(goodStory), 'kan-95');
+  check('round trip story: narrative asA', st.narrative.asA === goodStory.narrative.asA, st.narrative.asA);
+  check('round trip story: narrative iWant', st.narrative.iWant === goodStory.narrative.iWant);
+  check('round trip story: narrative soThat', st.narrative.soThat === goodStory.narrative.soThat);
+  check('round trip story: acceptance criteria',
+    JSON.stringify(st.acceptanceCriteria) === JSON.stringify(goodStory.acceptanceCriteria));
+  check('round trip story: points', st.points === goodStory.points);
+  check('round trip story: parent ref', st.epicRef === 'kan-95');
+
+  // A quality note we appended on a previous push must not leak into the body.
+  const withNote = m.epicToMarkdown(goodEpic) + '\n\n_Quality: 55/100, below the threshold of 70._';
+  const noNote = m.parseEpicMarkdown('KAN-95', goodEpic.title, withNote);
+  check('round trip: a previously appended quality note is stripped',
+    !noNote.description.includes('Quality:') && !JSON.stringify(noNote).includes('55/100'));
+
+  // An issue nobody generated: no structure, but it must still load.
+  const handWritten = m.parseEpicMarkdown('KAN-7', 'Some epic', 'We need to sort out the payments thing.\nTalk to Dave.');
+  check('hand-written issue: body lands in description', handWritten.description.includes('payments thing'));
+  check('hand-written issue: no invented outcome', handWritten.outcome === '');
+  check('hand-written issue: no invented criteria', handWritten.acceptanceCriteria.length === 0);
+
+  const handStory = m.parseStoryMarkdown('KAN-8', 'A story', 'Just some prose.', 'kan-7');
+  check('hand-written story: gets a placeholder criterion so it can load', handStory.acceptanceCriteria.length === 1);
+  check('hand-written story: defaults to 3 points', handStory.points === 3);
+
+  // Non-Gherkin bullets under Acceptance criteria are somebody's work — keep them.
+  const loose = m.parseEpicMarkdown('KAN-9', 'x', '## Acceptance criteria\n- It must be fast\n- It must log');
+  check('loose criteria are kept rather than dropped', loose.acceptanceCriteria.length === 2 &&
+    loose.acceptanceCriteria[0].then === 'It must be fast');
+}
 
 /* ------------------------------------------------------------ sync status */
 

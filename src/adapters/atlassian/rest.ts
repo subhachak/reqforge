@@ -25,7 +25,8 @@ const CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
   'jira.create',
   'jira.update',
   'jira.search',
-  'jira.createmeta'
+  'jira.createmeta',
+  'jira.children'
 ]);
 
 /**
@@ -189,6 +190,47 @@ export class AtlassianRestAdapter implements AtlassianPort {
       labels: res.fields.labels ?? [],
       parentKey: res.fields.parent?.key
     };
+  }
+
+  /**
+   * One search returning full detail, rather than a search plus a fetch per
+   * result. An epic with twenty stories would otherwise cost twenty-one calls
+   * and hit the rate limiter on a small tenant.
+   */
+  async searchIssueDetails(jql: string, max = 100): Promise<IssueDetail[]> {
+    const res = await this.call<{
+      issues: {
+        id: string;
+        key: string;
+        fields: {
+          summary: string;
+          description?: unknown;
+          issuetype?: { name: string };
+          status?: { name: string };
+          labels?: string[];
+          parent?: { key: string };
+        };
+      }[];
+    }>('/rest/api/3/search/jql', {
+      method: 'POST',
+      body: JSON.stringify({
+        jql,
+        maxResults: max,
+        fields: ['summary', 'description', 'issuetype', 'status', 'labels', 'parent']
+      })
+    });
+
+    return (res.issues ?? []).map((i) => ({
+      id: i.id,
+      key: i.key,
+      url: `${this.base}/browse/${i.key}`,
+      summary: i.fields.summary,
+      description: i.fields.description ? adfToMarkdown(i.fields.description) : '',
+      issueType: i.fields.issuetype?.name ?? 'Unknown',
+      status: i.fields.status?.name ?? 'Unknown',
+      labels: i.fields.labels ?? [],
+      parentKey: i.fields.parent?.key
+    }));
   }
 
   async searchIssues(jql: string, max = 50): Promise<IssueRef[]> {
