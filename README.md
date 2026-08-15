@@ -321,6 +321,23 @@ model reports close to a million, which is a routing promise rather than a per-r
 taking it literally means never trimming a long document and sending a request large enough to
 fail at the transport.
 
+## The editor is shaped like a Jira issue
+
+Deliberately, because a product owner reads that layout every day and it therefore needs no
+explaining:
+
+- A breadcrumb and a large editable title, not a form field called "Title".
+- Main column: outcome, description, acceptance criteria, then **Child issues** — Jira's own word
+  for what we were calling stories.
+- A **Details** sidebar on the right holding what Jira puts there: status as a lozenge, priority,
+  size, child count, points, and the issue key. Moving that metadata out of the prose is most of
+  what makes it read as an issue rather than a form.
+- Fields look like text and reveal their box on hover, the way Jira's inline editing does.
+- Below 900px the sidebar drops under the content instead of both being squeezed.
+
+The "Ask for a change" box sits at the foot of the issue, where a comment box would be — which is
+roughly what it is.
+
 ## Keeping it learnable
 
 The panel grew a control per capability and ended up with eight in the header, a vocabulary of

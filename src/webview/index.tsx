@@ -1133,26 +1133,28 @@ function EpicDetail(props: {
 
   return (
     <>
-      <div data-item={`epic:${e.ref}`}>
-      <div className="chip-row" style={{ marginBottom: 14 }}>
-        <span className={`dot ${status}`} />
-        <span style={{ color: 'var(--muted)', fontSize: 12 }}>{STATUS_LABEL[status]}</span>
-        <ScorePill quality={props.quality} />
+      <div data-item={`epic:${e.ref}`} className="issue">
+      <div className="issue-main">
+
+      {/* Breadcrumb and title, as an issue page opens. */}
+      <div className="issue-crumb">
+        <span>Epic</span>
         {e.sync.jiraKey && (
-          <a
-            className="chip link"
-            onClick={() => post({ type: 'openExternal', url: `${props.jiraBase}/browse/${e.sync.jiraKey}` })}
-          >
-            {e.sync.jiraKey} ↗
-          </a>
+          <>
+            <span>/</span>
+            <a className="crumb-link" onClick={() => post({ type: 'openExternal', url: `${props.jiraBase}/browse/${e.sync.jiraKey}` })}>
+              {e.sync.jiraKey} ↗
+            </a>
+          </>
         )}
-        <span className="chip">{e.stories.length} stories</span>
-        {points > 0 && <span className="chip">{points} points</span>}
       </div>
 
-      <Field label="Title" name="title">
-        <input className="title-input" value={e.title} onChange={(ev) => patch({ title: ev.target.value })} />
-      </Field>
+      <input
+        className="issue-title"
+        value={e.title}
+        placeholder="Untitled epic"
+        onChange={(ev) => patch({ title: ev.target.value })}
+      />
 
       <Field label="Outcome" hint="what is true once this ships, in business terms" name="outcome">
         <Grow value={e.outcome} onChange={(v) => patch({ outcome: v })} />
@@ -1161,25 +1163,6 @@ function EpicDetail(props: {
       <Field label="Description">
         <Grow value={e.description} onChange={(v) => patch({ description: v })} rows={4} />
       </Field>
-
-      <div className="row">
-        <div style={{ flex: 1 }}>
-          <Field label="Priority" hint="MoSCoW, as the requirements state it" name="priority">
-            <PriorityPicker value={e.priority ?? 'Should'} onChange={(v) => patch({ priority: v })} />
-          </Field>
-        </div>
-        <div style={{ flex: 1 }}>
-          <Field label="Size">
-            <select value={e.sizing} onChange={(ev) => patch({ sizing: ev.target.value as EpicItem['sizing'] })}>
-              {(['S', 'M', 'L', 'XL'] as const).map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
-      </div>
 
       <Field label="Acceptance criteria" name="acceptanceCriteria">
         <AcEditor items={e.acceptanceCriteria} onChange={(v) => patch({ acceptanceCriteria: v })} />
@@ -1314,10 +1297,8 @@ function EpicDetail(props: {
         </button>
       </div>
 
-      </div>
-
       <div className="section-head">
-        <h2>Stories</h2>
+        <h2>Child issues</h2>
         {needingWork > 0 && (
           <button
             className="ghost"
@@ -1357,6 +1338,69 @@ function EpicDetail(props: {
           onReview={props.onReview}
         />
       ))}
+
+      </div>
+
+      {/*
+        The details sidebar, where Jira keeps the same things: status, priority,
+        estimate, links. Putting them here rather than inline among the prose is
+        most of what makes this read as an issue rather than a form.
+      */}
+      <aside className="issue-side">
+        <div className="side-head">Details</div>
+        <dl className="side-list">
+          <dt>Status</dt>
+          <dd>
+            <span className={`lozenge ${status}`}>{STATUS_LABEL[status]}</span>
+          </dd>
+
+          <dt>Quality</dt>
+          <dd>
+            <ScorePill quality={props.quality} />
+          </dd>
+
+          <dt>Priority</dt>
+          <dd>
+            <PriorityPicker value={e.priority ?? 'Should'} onChange={(v) => patch({ priority: v })} />
+          </dd>
+
+          <dt>Size</dt>
+          <dd>
+            <select value={e.sizing} onChange={(ev) => patch({ sizing: ev.target.value as EpicItem['sizing'] })}>
+              {(['S', 'M', 'L', 'XL'] as const).map((z) => (
+                <option key={z} value={z}>
+                  {z}
+                </option>
+              ))}
+            </select>
+          </dd>
+
+          <dt>Child issues</dt>
+          <dd>{e.stories.length}</dd>
+
+          {points > 0 && (
+            <>
+              <dt>Points</dt>
+              <dd>{points}</dd>
+            </>
+          )}
+
+          {e.sync.jiraKey && (
+            <>
+              <dt>Issue</dt>
+              <dd>
+                <a
+                  className="crumb-link"
+                  onClick={() => post({ type: 'openExternal', url: `${props.jiraBase}/browse/${e.sync.jiraKey}` })}
+                >
+                  {e.sync.jiraKey} ↗
+                </a>
+              </dd>
+            </>
+          )}
+        </dl>
+      </aside>
+      </div>
     </>
   );
 }
