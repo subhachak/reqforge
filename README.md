@@ -326,7 +326,10 @@ fail at the transport.
 Deliberately, because a product owner reads that layout every day and it therefore needs no
 explaining:
 
-- A breadcrumb and a large editable title, not a form field called "Title".
+- A breadcrumb — **All epics / Epic / KAN-95** — where the first segment is the way back to the
+  list, as it is in Jira. The header's back button says "‹ All epics" for the same reason: back
+  means up one level, not all the way out.
+- A large editable title, not a form field called "Title".
 - Main column: outcome, description, acceptance criteria, then **Child issues** — Jira's own word
   for what we were calling stories.
 - A **Details** sidebar on the right holding what Jira puts there: status as a lozenge, priority,

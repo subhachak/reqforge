@@ -1111,6 +1111,7 @@ function EpicDetail(props: {
   onGenerateStories: () => void;
   onAddStory: () => void;
   onDeleteStory: (ref: string) => void;
+  onBackToList: () => void;
   storiesNeedingWorkOnly: boolean;
   onToggleStoryFilter: (value: boolean) => void;
 }) {
@@ -1138,6 +1139,10 @@ function EpicDetail(props: {
 
       {/* Breadcrumb and title, as an issue page opens. */}
       <div className="issue-crumb">
+        <a className="crumb-link" onClick={props.onBackToList}>
+          All epics
+        </a>
+        <span>/</span>
         <span>Epic</span>
         {e.sync.jiraKey && (
           <>
@@ -2084,8 +2089,14 @@ function App() {
   return (
     <div className="app">
       <div className="header">
-        <button className="ghost" title="Back" onClick={() => act({ type: 'navigate', view: 'home' })}>
-          ‹ Back
+        {/* Back means "up one level", not "all the way out". From an issue that
+            is the list it came from; from the list it is the home screen. */}
+        <button
+          className="ghost"
+          title={mode === 'editor' ? 'Back to all epics' : 'Back to the start'}
+          onClick={() => (mode === 'editor' ? setMode('dashboard') : act({ type: 'navigate', view: 'home' }))}
+        >
+          ‹ {mode === 'editor' ? 'All epics' : 'Back'}
         </button>
         <div style={{ minWidth: 0 }}>
           <h1>{b.source.title}</h1>
@@ -2323,6 +2334,7 @@ function App() {
               onAddStory={() => act({ type: 'addStory', epicRef: current.ref })}
               storiesNeedingWorkOnly={storiesNeedingWorkOnly}
               onToggleStoryFilter={setStoriesNeedingWorkOnly}
+              onBackToList={() => setMode('dashboard')}
             />
           ) : (
             <div className="empty">
