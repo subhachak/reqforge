@@ -32,8 +32,14 @@ const target = path.resolve(process.argv[2] ?? path.join(root, '..', 'reqforge-r
 const EXTRA_FILES = [
   'tsconfig.json',
   'esbuild.mjs',
-  'LICENSE.txt',
+  'LICENSE',
   '.gitignore',
+  // Without this the packaged VSIX carries src/, scripts/ and node_modules —
+  // 5.8MB instead of 250KB.
+  '.vscodeignore',
+  '.vscode/launch.json',
+  // Type-only, so the build graph never sees it.
+  'src/webview/css.d.ts',
   '.githooks/pre-push',
   'scripts/smoke.mjs',
   'scripts/contract.mjs',
@@ -174,12 +180,18 @@ if (leaked.length > 0) {
 
 /* ------------------------------------------------------------ write it out */
 
+/*
+ * Everything else is regenerated, because a stale leftover file is exactly the
+ * kind of thing that survives into an audit. `.git` stays so the export can be
+ * committed to an existing client repo; `node_modules` and `dist` stay because
+ * they are generated, gitignored, and reinstalling them on every regeneration
+ * buys nothing.
+ */
+const PRESERVE = new Set(['.git', 'node_modules', 'dist']);
+
 if (existsSync(target)) {
-  // Preserve .git so the export can be committed to an existing client repo;
-  // everything else is regenerated, because a stale leftover file is exactly
-  // the kind of thing that survives into an audit.
   for (const entry of readdirSync(target)) {
-    if (entry === '.git') continue;
+    if (PRESERVE.has(entry)) continue;
     rmSync(path.join(target, entry), { recursive: true, force: true });
   }
 } else {
@@ -197,6 +209,18 @@ const copy = (rel) => {
 
 let copied = 0;
 for (const rel of unique) if (copy(rel)) copied++;
+
+/*
+ * A missing entry here is a silent hole, not a loud one: the list named
+ * LICENSE.txt when the file is LICENSE, so the client's repository shipped with
+ * no licence at all and nothing said so. Fail instead.
+ */
+const absent = EXTRA_FILES.filter((rel) => !existsSync(path.join(root, rel)));
+if (absent.length > 0) {
+  console.error('\n  EXPORT ABORTED — files listed in EXTRA_FILES do not exist:');
+  for (const rel of absent) console.error(`    - ${rel}`);
+  process.exit(1);
+}
 for (const rel of EXTRA_FILES) if (copy(rel)) copied++;
 
 // registry.restricted.ts is reached through the alias, so the graph lists it
