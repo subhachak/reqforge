@@ -1,3 +1,11 @@
+# Backlog files, quality caches and panel findings. Gitignored, which is why
+# this was missed: excluded from the repository and packaged into the VSIX,
+# so a build made after pulling a real epic shipped that epic's content.
+.reqforge/**
+**/*.backlog.yaml
+**/*.quality.json
+**/*.panel.json
+
 .vscode/**
 src/**
 scripts/**

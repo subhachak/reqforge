@@ -35,12 +35,33 @@ const FULL_ONLY = [
   'emit_duplicate_verdicts' // Teamwork Graph duplicate detection
 ];
 
+/**
+ * Files that are somebody's content, not the product.
+ *
+ * A VSIX built in a workspace where the tool had been used shipped that
+ * workspace's backlog — a real Jira epic, its quality cache and its panel
+ * findings — because .reqforge is gitignored and was therefore invisible to
+ * every check that looked at the repository rather than at the package.
+ */
+const MUST_NOT_SHIP = [/(^|\/)\.reqforge\//, /\.backlog\.yaml$/, /\.quality\.json$/, /\.panel\.json$/];
+
 const dir = mkdtempSync(path.join(tmpdir(), 'reqforge-vsix-'));
 let failures = 0;
 
 try {
   execFileSync('unzip', ['-q', path.resolve(vsixPath), '-d', dir]);
   const bundle = readFileSync(path.join(dir, 'extension', 'dist', 'extension.js'), 'utf8');
+
+  const listed = execFileSync('unzip', ['-Z1', path.resolve(vsixPath)], { encoding: 'utf8' })
+    .split('\n')
+    .filter(Boolean);
+  const leaked = listed.filter((entry) => MUST_NOT_SHIP.some((re) => re.test(entry)));
+  if (leaked.length > 0) {
+    console.error(`  VSIX VERIFY FAILED — ${vsixPath} contains user content:`);
+    for (const entry of leaked) console.error(`    - ${entry}`);
+    console.error('  Add it to .vscodeignore. Gitignored is not the same as unpackaged.');
+    failures++;
+  }
 
   const found = FULL_ONLY.filter((needle) => bundle.includes(needle));
   const missing = FULL_ONLY.filter((needle) => !bundle.includes(needle));
