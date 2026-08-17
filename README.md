@@ -370,32 +370,23 @@ and evidence sit behind one *More detail* control. Same for stories.
 threshold", "missing something" rather than "blocked". The rubric vocabulary is still exact in the
 files and the code; it just stopped leaking into the interface.
 
-## The dashboard
+## The epic list is a rail, not a page
 
-Opening a backlog lands on an overview rather than an editor, because with six epics and forty
-stories the shape of the work matters more than any one item. Clicking a row opens the editor;
-the header toggles back.
+Opening a backlog lands straight on an epic, with the list beside it. There is no intermediate
+page: a list you have to pass through to reach the work is a step, not a view.
 
-**Grouping is a pivot, not a fixed axis** — epic, priority, readiness, sync state or size. Every
-one of those already exists on every item, so five useful views cost barely more than one, and
-they work on backlogs generated before the dashboard existed. No `category` field to maintain and
-nothing new for the model to fill.
+The rail carries what that page used to:
 
-**Filters compose.** A state chip, a title search, epics-or-stories and priority all narrow the
-same list, and one control clears them together. Search matters most past about thirty rows, where
-scanning stops working.
+- **Search** across epic titles.
+- **A readiness filter** with live counts — not checked, needs work, missing something, not sent,
+  without stories. An epic's readiness includes its stories, so an epic that reads well but whose
+  stories are unusable still shows under "needs work"; otherwise the filter would hide exactly the
+  epics somebody needs to open.
+- **Selection**, and the bulk actions that go with it: check quality, fix, generate stories, send
+  to Jira, and set priority or size. The last two are local edits with no requests and no network.
 
-**The counts along the top are filters.** Clicking *"8 below 70"* narrows the list to exactly
-those; *select all shown* then gives you the set. That is the three-click path to "improve
-everything that is failing", which is also the shortest interesting thing to demo.
-
-**Bulk actions divide in two, deliberately.** Setting priority or size is a local edit: instant,
-no requests, no network, undoable. Review, Improve, Generate stories and Send keep their existing
-confirmations and costs. The dashboard did not need new capabilities — those operations already
-took a set of refs. What it needed was a selection model.
-
-Selecting a story pulls its parent epic into the operation, because that is the unit those
-pipelines work in.
+Selecting nothing hides the action bar entirely, so the rail is a list until you need it to be
+more than that.
 
 ## Improving a backlog on its own
 

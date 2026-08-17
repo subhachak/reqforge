@@ -469,14 +469,6 @@ function QualityPanel({
 }
 
 
-/** Plain words for states the code calls something else. */
-const READINESS_WORDS = {
-  notChecked: 'Not checked',
-  needsWork: 'Needs work',
-  ready: 'Ready',
-  blocked: 'Missing something'
-} as const;
-
 /* --------------------------------------------------------------- next step */
 
 /**
@@ -517,388 +509,51 @@ function nextStep(state: PanelState, pending: number):
   return undefined;
 }
 
-/* ---------------------------------------------------------------- dashboard */
+/* ------------------------------------------------------------ epic filtering */
 
-type GroupBy = 'epic' | 'priority' | 'readiness' | 'sync' | 'size';
-type PendingFilter = 'all' | 'not-reviewed' | 'below-threshold' | 'blocked' | 'not-sent' | 'no-stories';
+type PendingFilter = 'all' | 'not-checked' | 'needs-work' | 'blocked' | 'not-sent' | 'no-stories';
 
-interface Row {
-  level: 'epic' | 'story';
-  ref: string;
-  epicRef: string;
-  title: string;
-  priority: string;
-  size: string;
-  points: number;
-  storyCount: number;
-  quality: ItemQuality | undefined;
-  status: Status;
-}
-
-const GROUP_LABEL: Record<GroupBy, string> = {
-  epic: 'Epic',
-  priority: 'Priority',
-  readiness: 'Readiness',
-  sync: 'Sent to Jira',
-  size: 'Size'
+const PENDING_LABEL: Record<PendingFilter, string> = {
+  all: 'All epics',
+  'not-checked': 'Not checked',
+  'needs-work': 'Needs work',
+  blocked: 'Missing something',
+  'not-sent': 'Not sent',
+  'no-stories': 'Without stories'
 };
 
-const PRIORITY_ORDER = ['Must', 'Should', 'Could'];
-
 /**
- * The dashboard groups by a dimension the data already carries rather than a
- * category somebody has to maintain. Priority, readiness, sync state, epic and
- * size are all present on every item, so five useful views cost barely more
- * than one — and they work on backlogs generated before this existed.
+ * Whether an epic matches a filter, taking its stories into account.
+ *
+ * An epic that reads perfectly but whose stories are unusable is not ready, so
+ * the rail looks down a level. Without that, "needs work" would hide exactly
+ * the epics somebody needs to open.
  */
-function groupKeyOf(row: Row, by: GroupBy, epicTitles: Map<string, string>): string {
-  switch (by) {
-    case 'epic':
-      return epicTitles.get(row.epicRef) ?? row.epicRef;
-    case 'priority':
-      return row.priority || 'Should';
-    case 'readiness':
-      if (!row.quality) return READINESS_WORDS.notChecked;
-      if (row.quality.blockedBy.length) return READINESS_WORDS.blocked;
-      if (row.quality.deterministicOnly) return READINESS_WORDS.notChecked;
-      return row.quality.passed ? READINESS_WORDS.ready : READINESS_WORDS.needsWork;
-    case 'sync':
-      return { new: 'Not sent', edited: 'Changed since sent', synced: 'In Jira' }[row.status];
-    case 'size':
-      return row.level === 'epic' ? `Epic ${row.size}` : `${row.points} points`;
-  }
-}
+function epicMatches(
+  epic: EpicItem,
+  filter: PendingFilter,
+  qualityFor: (level: 'epic' | 'story', ref: string) => ItemQuality | undefined
+): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'no-stories') return epic.stories.length === 0;
 
-function matchesFilter(row: Row, filter: PendingFilter): boolean {
+  const all = [qualityFor('epic', epic.ref), ...epic.stories.map((s) => qualityFor('story', s.ref))].filter(
+    Boolean
+  ) as ItemQuality[];
+
   switch (filter) {
-    case 'all':
-      return true;
-    case 'not-reviewed':
-      return !row.quality || row.quality.deterministicOnly;
-    case 'below-threshold':
-      return Boolean(row.quality && !row.quality.deterministicOnly && !row.quality.passed && !row.quality.blockedBy.length);
+    case 'not-checked':
+      return all.length === 0 || all.some((q) => q.deterministicOnly);
+    case 'needs-work':
+      return all.some((q) => !q.passed && !q.deterministicOnly && q.blockedBy.length === 0);
     case 'blocked':
-      return Boolean(row.quality?.blockedBy.length);
+      return all.some((q) => q.blockedBy.length > 0);
     case 'not-sent':
-      return row.status !== 'synced';
-    case 'no-stories':
-      return row.level === 'epic' && row.storyCount === 0;
+      return (
+        statusOf(epic, qualityFor('epic', epic.ref)) !== 'synced' ||
+        epic.stories.some((s) => statusOf(s, qualityFor('story', s.ref)) !== 'synced')
+      );
   }
-}
-
-function Dashboard(props: {
-  state: PanelState;
-  epics: EpicItem[];
-  qualityFor: (level: 'epic' | 'story', ref: string) => ItemQuality | undefined;
-  onOpen: (epicRef: string) => void;
-  onEdit: (epics: EpicItem[]) => void;
-  act: (msg: WebviewMessage) => void;
-}) {
-  const { state, epics, qualityFor, act } = props;
-  const [by, setBy] = useState<GroupBy>('epic');
-  const [filter, setFilter] = useState<PendingFilter>('all');
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [search, setSearch] = useState('');
-  const [level, setLevel] = useState<'all' | 'epic' | 'story'>('all');
-  const [priority, setPriority] = useState<'all' | 'Must' | 'Should' | 'Could'>('all');
-
-  const epicTitles = useMemo(() => new Map(epics.map((e) => [e.ref, e.title || 'Untitled epic'])), [epics]);
-
-  const rows: Row[] = useMemo(() => {
-    const out: Row[] = [];
-    for (const e of epics) {
-      const q = qualityFor('epic', e.ref);
-      out.push({
-        level: 'epic',
-        ref: e.ref,
-        epicRef: e.ref,
-        title: e.title || 'Untitled epic',
-        priority: e.priority ?? 'Should',
-        size: e.sizing ?? 'M',
-        points: e.stories.reduce((n, s) => n + s.points, 0),
-        storyCount: e.stories.length,
-        quality: q,
-        status: statusOf(e, q)
-      });
-      for (const st of e.stories) {
-        const sq = qualityFor('story', st.ref);
-        out.push({
-          level: 'story',
-          ref: st.ref,
-          epicRef: e.ref,
-          title: st.title || 'Untitled story',
-          priority: st.priority ?? 'Should',
-          size: String(st.points),
-          points: st.points,
-          storyCount: 0,
-          quality: sq,
-          status: statusOf(st, sq)
-        });
-      }
-    }
-    return out;
-  }, [epics, qualityFor]);
-
-  const counts = useMemo(
-    () => ({
-      'not-reviewed': rows.filter((r) => matchesFilter(r, 'not-reviewed')).length,
-      'below-threshold': rows.filter((r) => matchesFilter(r, 'below-threshold')).length,
-      blocked: rows.filter((r) => matchesFilter(r, 'blocked')).length,
-      'not-sent': rows.filter((r) => matchesFilter(r, 'not-sent')).length,
-      'no-stories': rows.filter((r) => matchesFilter(r, 'no-stories')).length
-    }),
-    [rows]
-  );
-
-  /**
-   * Filters compose rather than replacing each other: a state chip, a level, a
-   * priority and a search term all narrow the same list. Searching is the one
-   * that matters most past about thirty items, where scanning stops working.
-   */
-  const visible = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return rows.filter(
-      (r) =>
-        matchesFilter(r, filter) &&
-        (level === 'all' || r.level === level) &&
-        (priority === 'all' || r.priority === priority) &&
-        (!term || r.title.toLowerCase().includes(term))
-    );
-  }, [rows, filter, level, priority, search]);
-
-  const groups = useMemo(() => {
-    const map = new Map<string, Row[]>();
-    for (const r of visible) {
-      const key = groupKeyOf(r, by, epicTitles);
-      const list = map.get(key) ?? [];
-      list.push(r);
-      map.set(key, list);
-    }
-    const keys = [...map.keys()].sort((a, b) => {
-      if (by === 'priority') return PRIORITY_ORDER.indexOf(a) - PRIORITY_ORDER.indexOf(b);
-      return a.localeCompare(b);
-    });
-    return keys.map((k) => ({ key: k, rows: map.get(k)! }));
-  }, [visible, by, epicTitles]);
-
-  const id = (r: Row) => `${r.level}:${r.ref}`;
-  const toggle = (r: Row) => {
-    const next = new Set(selected);
-    next.has(id(r)) ? next.delete(id(r)) : next.add(id(r));
-    setSelected(next);
-  };
-  const selectedRows = rows.filter((r) => selected.has(id(r)));
-
-  /** Operations run per epic, so a story selection pulls in its parent. */
-  const selectedEpicRefs = [...new Set(selectedRows.map((r) => r.epicRef))];
-  const selectedEpicsOnly = selectedRows.filter((r) => r.level === 'epic').map((r) => r.ref);
-
-  /** Local edits: instant, no requests, no network. */
-  const patchSelected = (patch: { priority?: string; sizing?: string; points?: number }) => {
-    const chosen = new Set(selectedRows.map(id));
-    props.onEdit(
-      epics.map((e) => ({
-        ...e,
-        ...(chosen.has(`epic:${e.ref}`) && patch.priority ? { priority: patch.priority as EpicItem['priority'] } : {}),
-        ...(chosen.has(`epic:${e.ref}`) && patch.sizing ? { sizing: patch.sizing as EpicItem['sizing'] } : {}),
-        stories: e.stories.map((st) =>
-          chosen.has(`story:${st.ref}`)
-            ? {
-                ...st,
-                ...(patch.priority ? { priority: patch.priority as StoryItem['priority'] } : {}),
-                ...(patch.points ? { points: patch.points as StoryItem['points'] } : {})
-              }
-            : st
-        )
-      }))
-    );
-  };
-
-  const chip = (key: PendingFilter, label: string, n: number) =>
-    n > 0 ? (
-      <button
-        className={`filter-chip ${filter === key ? 'on' : ''}`}
-        onClick={() => setFilter(filter === key ? 'all' : key)}
-      >
-        <strong>{n}</strong> {label}
-      </button>
-    ) : null;
-
-  const totals = {
-    epics: epics.length,
-    stories: rows.filter((r) => r.level === 'story').length,
-    points: rows.filter((r) => r.level === 'story').reduce((n, r) => n + r.points, 0)
-  };
-
-  return (
-    <div className="detail dashboard">
-      <div className="dash-summary">
-        <div className="dash-totals">
-          {totals.epics} epics · {totals.stories} stories · {totals.points} points
-          {state.quality && !state.quality.unassessed && <> · average {state.quality.score}</>}
-        </div>
-        <div className="chip-row">
-          {chip('not-reviewed', 'not checked', counts['not-reviewed'])}
-          {chip('below-threshold', 'need work', counts['below-threshold'])}
-          {chip('blocked', 'missing something', counts.blocked)}
-          {chip('not-sent', 'not sent', counts['not-sent'])}
-          {chip('no-stories', 'without stories', counts['no-stories'])}
-          {(filter !== 'all' || level !== 'all' || priority !== 'all' || search) && (
-            <button
-              className="ghost"
-              onClick={() => {
-                setFilter('all');
-                setLevel('all');
-                setPriority('all');
-                setSearch('');
-              }}
-            >
-              clear filters
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="dash-controls">
-        <input
-          className="dash-search"
-          value={search}
-          placeholder="Search titles…"
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <select
-          style={{ width: 110 }}
-          value={level}
-          title="Show epics, stories, or both"
-          onChange={(e) => setLevel(e.target.value as 'all' | 'epic' | 'story')}
-        >
-          <option value="all">Everything</option>
-          <option value="epic">Epics</option>
-          <option value="story">Stories</option>
-        </select>
-        <select
-          style={{ width: 130 }}
-          value={priority}
-          title="Filter by priority"
-          onChange={(e) => setPriority(e.target.value as 'all' | 'Must' | 'Should' | 'Could')}
-        >
-          <option value="all">Any priority</option>
-          {PRIORITIES.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
-        <label style={{ color: 'var(--muted)', fontSize: 12 }}>Group by</label>
-        <select style={{ width: 170 }} value={by} onChange={(e) => setBy(e.target.value as GroupBy)}>
-          {(Object.keys(GROUP_LABEL) as GroupBy[]).map((g) => (
-            <option key={g} value={g}>
-              {GROUP_LABEL[g]}
-            </option>
-          ))}
-        </select>
-        <div className="spacer" />
-        <button className="ghost" onClick={() => setSelected(new Set(visible.map(id)))}>
-          select all shown ({visible.length})
-        </button>
-        <button className="ghost" disabled={selected.size === 0} onClick={() => setSelected(new Set())}>
-          clear
-        </button>
-      </div>
-
-      {groups.length === 0 && (
-        <p style={{ color: 'var(--muted)' }}>
-          Nothing matches. {rows.length} item{rows.length === 1 ? '' : 's'} in total.
-        </p>
-      )}
-
-      {groups.map((g) => {
-        const allChosen = g.rows.every((r) => selected.has(id(r)));
-        return (
-          <div className="dash-group" key={g.key}>
-            <div className="dash-group-head">
-              <input
-                type="checkbox"
-                checked={allChosen}
-                onChange={() => {
-                  const next = new Set(selected);
-                  g.rows.forEach((r) => (allChosen ? next.delete(id(r)) : next.add(id(r))));
-                  setSelected(next);
-                }}
-              />
-              <h3>{g.key}</h3>
-              <span style={{ color: 'var(--muted)', fontSize: 12 }}>{g.rows.length}</span>
-            </div>
-            {g.rows.map((r) => (
-              <div className={`dash-row ${r.level}`} key={id(r)}>
-                <input type="checkbox" checked={selected.has(id(r))} onChange={() => toggle(r)} />
-                <span className={`dot ${r.status}`} title={STATUS_LABEL[r.status]} />
-                <button className="dash-title" onClick={() => props.onOpen(r.epicRef)} title="Open in the editor">
-                  {r.title}
-                </button>
-                <span className="chip">{r.priority}</span>
-                <span className="chip">{r.level === 'epic' ? r.size : `${r.points}pt`}</span>
-                <ScorePill quality={r.quality} />
-              </div>
-            ))}
-          </div>
-        );
-      })}
-
-      {selected.size > 0 && (
-        <div className="dash-actions">
-          <strong>{selected.size} selected</strong>
-
-          <button disabled={state.busy} onClick={() => act({ type: 'deepReview', only: selectedEpicRefs })}>
-            Review quality
-          </button>
-          <button disabled={state.busy} onClick={() => act({ type: 'improve', only: selectedEpicRefs })}>
-            ✦ Improve
-          </button>
-          <button
-            disabled={state.busy || selectedEpicsOnly.length === 0}
-            title={selectedEpicsOnly.length === 0 ? 'Select epics to generate stories for' : undefined}
-            onClick={() => act({ type: 'generateStories', epicRefs: selectedEpicsOnly })}
-          >
-            Generate stories
-          </button>
-          <button
-            className="primary"
-            disabled={state.busy}
-            onClick={() => act({ type: 'previewPush', only: selectedEpicRefs })}
-          >
-            Send to Jira
-          </button>
-
-          <span className="dash-sep" />
-          <select
-            value=""
-            title="Set priority on the selection — a local edit, no requests"
-            onChange={(e) => e.target.value && patchSelected({ priority: e.target.value })}
-          >
-            <option value="">Set priority…</option>
-            {PRIORITIES.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-          <select
-            value=""
-            title="Set size on selected epics"
-            onChange={(e) => e.target.value && patchSelected({ sizing: e.target.value })}
-          >
-            <option value="">Set size…</option>
-            {['S', 'M', 'L', 'XL'].map((z) => (
-              <option key={z} value={z}>
-                {z}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-    </div>
-  );
 }
 
 /* ------------------------------------------------------------------ status */
@@ -996,7 +651,7 @@ function StoryCard(props: {
           </Field>
 
           <button className="disclosure" onClick={() => setShowAll(!showAll)}>
-            {showAll ? '▾' : '▸'} More detail
+            <span>{showAll ? '▾' : '▸'} More detail</span>
             <span className="disclosure-hint">scope, technical notes, assumptions, links, dependencies</span>
           </button>
 
@@ -1142,7 +797,6 @@ function EpicDetail(props: {
   onGenerateStories: () => void;
   onAddStory: () => void;
   onDeleteStory: (ref: string) => void;
-  onBackToList: () => void;
   storiesNeedingWorkOnly: boolean;
   onToggleStoryFilter: (value: boolean) => void;
 }) {
@@ -1170,10 +824,6 @@ function EpicDetail(props: {
 
       {/* Breadcrumb and title, as an issue page opens. */}
       <div className="issue-crumb">
-        <a className="crumb-link" onClick={props.onBackToList}>
-          All epics
-        </a>
-        <span>/</span>
         <span>Epic</span>
         {e.sync.jiraKey && (
           <>
@@ -1205,7 +855,7 @@ function EpicDetail(props: {
       </Field>
 
       <button className="disclosure" onClick={() => setShowAll(!showAll)}>
-        {showAll ? '▾' : '▸'} More detail
+        <span>{showAll ? '▾' : '▸'} More detail</span>
         <span className="disclosure-hint">
           success measures, scope, non-functional requirements, assumptions, links, dependencies
         </span>
@@ -1930,12 +1580,17 @@ function PlanModal({ state, only }: { state: PanelState; only: string[] }) {
 function App() {
   const [state, setState] = useState<PanelState>(EMPTY);
   const [selected, setSelected] = useState<string | undefined>();
-  // Opening a backlog lands on the dashboard; the editor is where you go to
-  // change one thing. Reset on a backlog switch so you never land mid-edit in
-  // something you did not open.
-  const [mode, setMode] = useState<'dashboard' | 'editor'>('dashboard');
   const [showMore, setShowMore] = useState(false);
-  useEffect(() => setMode('dashboard'), [state.slug]);
+  // The rail carries what the separate list view used to: search, a readiness
+  // filter, and a selection to act on in bulk.
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<PendingFilter>('all');
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setSearch('');
+    setFilter('all');
+    setChosen(new Set());
+  }, [state.slug]);
   const [storiesNeedingWorkOnly, setStoriesNeedingWorkOnly] = useState(false);
   // Collapsed by default: valuable, but it must not push the epics below the
   // fold on first open. The counts in the header keep it discoverable.
@@ -2051,6 +1706,27 @@ function App() {
 
   const step = useMemo(() => nextStep(state, totals.pending), [state, totals.pending]);
 
+  const filterCounts = useMemo(() => {
+    const counts = {} as Record<PendingFilter, number>;
+    for (const f of Object.keys(PENDING_LABEL) as PendingFilter[]) {
+      counts[f] = epics.filter((e) => epicMatches(e, f, qualityFor)).length;
+    }
+    return counts;
+  }, [epics, qualityFor]);
+
+  const visibleEpics = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return epics.filter(
+      (e) => epicMatches(e, filter, qualityFor) && (!term || e.title.toLowerCase().includes(term))
+    );
+  }, [epics, filter, search, qualityFor]);
+
+  // Keep the open issue in the rail rather than showing something filtered out.
+  useEffect(() => {
+    if (visibleEpics.length === 0) return;
+    if (!selected || !visibleEpics.some((e) => e.ref === selected)) setSelected(visibleEpics[0].ref);
+  }, [visibleEpics, selected]);
+
   /* Chrome shared by every view: the notice banner, busy overlay, and a way
      back to the home screen. Setup deliberately has no escape hatch. */
   const chrome = (title: string, sub: string, actions: React.ReactNode) => (
@@ -2146,14 +1822,8 @@ function App() {
   return (
     <div className="app">
       <div className="header">
-        {/* Back means "up one level", not "all the way out". From an issue that
-            is the list it came from; from the list it is the home screen. */}
-        <button
-          className="ghost"
-          title={mode === 'editor' ? 'Back to all epics' : 'Back to the start'}
-          onClick={() => (mode === 'editor' ? setMode('dashboard') : act({ type: 'navigate', view: 'home' }))}
-        >
-          ‹ {mode === 'editor' ? 'All epics' : 'Back'}
+        <button className="ghost" title="Back to the start" onClick={() => act({ type: 'navigate', view: 'home' })}>
+          ‹ Back
         </button>
         <div style={{ minWidth: 0 }}>
           <h1>{b.source.title}</h1>
@@ -2287,20 +1957,132 @@ function App() {
       )}
 
       <div className="body">
-        {mode === 'dashboard' ? (
-          <Dashboard
-            state={state}
-            epics={epics}
-            qualityFor={qualityFor}
-            act={act}
-            onEdit={edit}
-            onOpen={(epicRef) => {
-              setSelected(epicRef);
-              setMode('editor');
-            }}
-          />
-        ) : (
-        <>
+        <div className="rail">
+          <div className="rail-tools">
+            <input
+              className="rail-search"
+              value={search}
+              placeholder="Search epics…"
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <select value={filter} onChange={(e) => setFilter(e.target.value as PendingFilter)}>
+              {(Object.keys(PENDING_LABEL) as PendingFilter[]).map((f) => (
+                <option key={f} value={f} disabled={f !== 'all' && filterCounts[f] === 0}>
+                  {PENDING_LABEL[f]} ({filterCounts[f]})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {visibleEpics.length === 0 && (
+            <p style={{ color: 'var(--muted)', padding: '10px' }}>
+              Nothing matches. {epics.length} epic{epics.length === 1 ? '' : 's'} in total.
+            </p>
+          )}
+
+          {visibleEpics.map((e) => {
+            const q = qualityFor('epic', e.ref);
+            const st = statusOf(e, q);
+            return (
+              <div
+                key={e.ref}
+                className={`epic-row ${selected === e.ref ? 'selected' : ''}`}
+                onClick={() => setSelected(e.ref)}
+              >
+                <input
+                  type="checkbox"
+                  checked={chosen.has(e.ref)}
+                  title="Select for a bulk action"
+                  onClick={(ev) => ev.stopPropagation()}
+                  onChange={(ev) => {
+                    const next = new Set(chosen);
+                    ev.target.checked ? next.add(e.ref) : next.delete(e.ref);
+                    setChosen(next);
+                  }}
+                />
+                <span className={`dot ${st}`} title={STATUS_LABEL[st]} />
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div className="title">{e.title || 'Untitled epic'}</div>
+                  <div className="meta">
+                    {e.priority ?? 'Should'} · {e.sizing} · {e.stories.length} stor
+                    {e.stories.length === 1 ? 'y' : 'ies'}
+                  </div>
+                </div>
+                <ScorePill quality={q} />
+              </div>
+            );
+          })}
+
+          <div className="rail-foot">
+            <button className="ghost" onClick={() => act({ type: 'addEpic' })}>
+              + Add epic
+            </button>
+            {visibleEpics.length > 0 && (
+              <button
+                className="ghost"
+                onClick={() =>
+                  setChosen(
+                    chosen.size === visibleEpics.length ? new Set() : new Set(visibleEpics.map((e) => e.ref))
+                  )
+                }
+              >
+                {chosen.size === visibleEpics.length ? 'none' : 'select all'}
+              </button>
+            )}
+          </div>
+
+          {/* The bulk actions the list view used to carry, on the selection made here. */}
+          {chosen.size > 0 && (
+            <div className="rail-actions">
+              <strong>{chosen.size} selected</strong>
+              <button disabled={state.busy} onClick={() => act({ type: 'deepReview', only: [...chosen] })}>
+                Check quality
+              </button>
+              <button disabled={state.busy} onClick={() => act({ type: 'improve', only: [...chosen] })}>
+                ✦ Fix
+              </button>
+              <button disabled={state.busy} onClick={() => act({ type: 'generateStories', epicRefs: [...chosen] })}>
+                Generate stories
+              </button>
+              <button className="primary" disabled={state.busy} onClick={() => act({ type: 'previewPush', only: [...chosen] })}>
+                Send to Jira
+              </button>
+              <select
+                value=""
+                title="Set priority on the selected epics — a local edit"
+                onChange={(ev) => {
+                  if (!ev.target.value) return;
+                  const p = ev.target.value as EpicItem['priority'];
+                  edit(epics.map((e) => (chosen.has(e.ref) ? { ...e, priority: p } : e)));
+                }}
+              >
+                <option value="">Set priority…</option>
+                {PRIORITIES.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+              <select
+                value=""
+                title="Set size on the selected epics"
+                onChange={(ev) => {
+                  if (!ev.target.value) return;
+                  const z = ev.target.value as EpicItem['sizing'];
+                  edit(epics.map((e) => (chosen.has(e.ref) ? { ...e, sizing: z } : e)));
+                }}
+              >
+                <option value="">Set size…</option>
+                {['S', 'M', 'L', 'XL'].map((z) => (
+                  <option key={z} value={z}>
+                    {z}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
         <div className="detail">
           {current ? (
             <EpicDetail
@@ -2321,7 +2103,6 @@ function App() {
               onAddStory={() => act({ type: 'addStory', epicRef: current.ref })}
               storiesNeedingWorkOnly={storiesNeedingWorkOnly}
               onToggleStoryFilter={setStoriesNeedingWorkOnly}
-              onBackToList={() => setMode('dashboard')}
             />
           ) : (
             <div className="empty">
@@ -2330,8 +2111,6 @@ function App() {
             </div>
           )}
         </div>
-        </>
-        )}
       </div>
 
       {state.pendingRefine && <RefineModal state={state} />}
