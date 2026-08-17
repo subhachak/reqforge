@@ -170,7 +170,9 @@ export class BacklogPanel {
     const baseUrl = c.get<string>('atlassian.baseUrl', '').trim();
     const email = c.get<string>('atlassian.email', '').trim();
     const projectKey = c.get<string>('jira.projectKey', '').trim();
+    const storageFolder = c.get<string>('storageFolder', '').trim();
     const hasToken = Boolean(await this.ctx.secrets.get('reqforge.atlassian.apiToken'));
+    const hasWorkspace = (vscode.workspace.workspaceFolders?.length ?? 0) > 0;
     return {
       baseUrl,
       email,
@@ -178,8 +180,10 @@ export class BacklogPanel {
       epicIssueType: c.get<string>('jira.epicIssueType', 'Epic'),
       storyIssueType: c.get<string>('jira.storyIssueType', 'Story'),
       modelFamily: c.get<string>('llm.modelFamily', ''),
+      storageFolder,
       hasToken,
-      complete: Boolean(baseUrl && email && projectKey && hasToken),
+      hasWorkspace,
+      complete: Boolean(baseUrl && email && projectKey && hasToken && (hasWorkspace || storageFolder)),
       atlassian: this.probes.atlassian,
       model: this.probes.model
     };
@@ -566,6 +570,10 @@ export class BacklogPanel {
         await this.send();
         return;
 
+      case 'browseStorageFolder':
+        await this.browseStorageFolder();
+        return;
+
       case 'testConnection':
         await this.testConnection();
         return;
@@ -858,6 +866,21 @@ export class BacklogPanel {
     // Anything changed here invalidates a previous test result.
     this.probes = { atlassian: { state: 'unknown', detail: '' }, model: { state: 'unknown', detail: '' } };
     await this.send();
+  }
+
+  private async browseStorageFolder() {
+    const uris = await vscode.window.showOpenDialog({
+      title: 'ReqForge — Select Storage Folder',
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      openLabel: 'Select Folder'
+    });
+
+    if (uris && uris.length > 0) {
+      await cfg().update('storageFolder', uris[0].fsPath, vscode.ConfigurationTarget.Global);
+      await this.send();
+    }
   }
 
   private async testConnection() {

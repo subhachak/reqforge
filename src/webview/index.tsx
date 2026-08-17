@@ -26,7 +26,9 @@ const EMPTY: PanelState = {
     epicIssueType: 'Epic',
     storyIssueType: 'Story',
     modelFamily: '',
+    storageFolder: '',
     hasToken: false,
+    hasWorkspace: false,
     complete: false,
     atlassian: { state: 'unknown', detail: '' },
     model: { state: 'unknown', detail: '' }
@@ -1468,7 +1470,7 @@ function Setup({ state }: { state: PanelState }) {
     modelFamily: s.modelFamily
   });
 
-  // Adopt host values when they change underneath us (e.g. the token prompt).
+  // Adopt host values when they change underneath us (e.g. the token prompt or storage folder selection).
   useEffect(() => {
     setForm({
       baseUrl: s.baseUrl,
@@ -1489,7 +1491,8 @@ function Setup({ state }: { state: PanelState }) {
     !form.baseUrl && 'Atlassian site',
     !form.email && 'account email',
     !s.hasToken && 'API token',
-    !form.projectKey && 'Jira project'
+    !form.projectKey && 'Jira project',
+    !s.hasWorkspace && !s.storageFolder && 'storage folder'
   ].filter(Boolean) as string[];
 
   return (
@@ -1584,6 +1587,37 @@ function Setup({ state }: { state: PanelState }) {
           </Field>
         </div>
       </div>
+
+      {!s.hasWorkspace && (
+        <>
+          <div className="section-head">
+            <h2>Storage Location</h2>
+          </div>
+
+          <Field
+            label="Storage folder"
+            hint="where backlog files are stored when no workspace is open"
+          >
+            <div className="chip-row">
+              <span
+                className="chip"
+                style={{
+                  background: s.storageFolder ? 'var(--green)' : 'var(--secondary)',
+                  color: s.storageFolder ? '#000' : undefined,
+                  flex: 1,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
+              >
+                {s.storageFolder || 'No folder selected'}
+              </span>
+              <button onClick={() => post({ type: 'browseStorageFolder' })}>
+                {s.storageFolder ? 'Change' : 'Select Folder'}
+              </button>
+            </div>
+          </Field>
+        </>
+      )}
 
       <div className="section-head">
         <h2>Language model</h2>

@@ -25,7 +25,9 @@ export interface SetupState {
   epicIssueType: string;
   storyIssueType: string;
   modelFamily: string;
+  storageFolder: string;
   hasToken: boolean;
+  hasWorkspace: boolean;
   /** Everything the tool needs before it can do anything useful. */
   complete: boolean;
   /** Populated by an explicit test, not on every render — each costs a round trip. */
@@ -91,6 +93,7 @@ export type WebviewMessage =
   | { type: 'saveSettings'; patch: SettingsPatch }
   | { type: 'setToken' }
   | { type: 'clearToken' }
+  | { type: 'browseStorageFolder' }
   | { type: 'testConnection' }
   /* home */
   | { type: 'decompose' }
