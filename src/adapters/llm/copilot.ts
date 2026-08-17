@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { LlmUnavailableError, type LlmCancellation, type LlmPort, type StructuredRequest } from '../../core/ports';
-import { repairPrompt } from '../../core/prompts';
+import { repairPrompt, withCachedPrefix } from '../../core/prompts';
 
 /**
  * Copilot-backed LLM adapter.
@@ -108,7 +108,9 @@ export class CopilotLlmAdapter implements LlmPort {
       inputSchema: req.inputSchema
     };
 
-    const messages = req.messages.map((m) =>
+    // vscode.lm has no prompt caching, so a declared prefix is inlined. Not
+    // optional: dropping it would send a review prompt with no source in it.
+    const messages = withCachedPrefix(req.messages, req.cachedPrefix).map((m) =>
       m.role === 'user' ? vscode.LanguageModelChatMessage.User(m.content) : vscode.LanguageModelChatMessage.Assistant(m.content)
     );
 

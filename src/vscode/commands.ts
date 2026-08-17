@@ -4,7 +4,7 @@ import type { AtlassianPort, LlmPort } from '../core/ports';
 import { LlmUnavailableError } from '../core/ports';
 import { decomposePrd } from '../core/pipeline/decompose';
 import { BacklogStore } from '../core/store';
-import { adapterContext, cfg, dataFolder, ensureConfigured } from './config';
+import { adapterContext, cfg, clearAnthropicKey, dataFolder, ensureConfigured, setAnthropicKey } from './config';
 import { WorkspaceFs } from './fs';
 import { BacklogPanel } from './panel';
 
@@ -67,6 +67,27 @@ export function registerCommands(deps: Deps): vscode.Disposable[] {
 
     vscode.commands.registerCommand('reqforge.decomposePrd', () =>
       guard(deps, 'Decompose PRD', () => decomposeCmd(deps))
+    ),
+
+    // A palette command rather than a panel field: the key never belongs in a
+    // webview, and an empty prompt is how you clear it.
+    vscode.commands.registerCommand('reqforge.setAnthropicKey', () =>
+      guard(deps, 'Set Anthropic API Key', async () => {
+        const key = await vscode.window.showInputBox({
+          title: 'ReqForge — Anthropic API Key',
+          prompt: 'Stored in the OS keychain, never in settings. Leave empty to remove the stored key.',
+          password: true,
+          ignoreFocusOut: true
+        });
+        if (key === undefined) return;
+        if (key.trim() === '') {
+          await clearAnthropicKey(deps.ctx);
+          void vscode.window.showInformationMessage('ReqForge: Anthropic API key removed.');
+          return;
+        }
+        await setAnthropicKey(deps.ctx, key.trim());
+        void vscode.window.showInformationMessage('ReqForge: Anthropic API key stored in the OS keychain.');
+      })
     )
   ];
 }

@@ -26,6 +26,11 @@ export function activate(context: vscode.ExtensionContext): void {
   out.appendLine(`  transports: ${registry.availableTransports.join(', ')}`);
   out.appendLine(`  providers:  ${registry.availableLlmProviders.join(', ')}`);
 
+  // Drives `when` clauses in package.json. The restricted build must not even
+  // offer to store a third-party API key: the command would do nothing, but a
+  // client auditing the palette would reasonably read it as capability.
+  void vscode.commands.executeCommand('setContext', 'reqforge.profile', registry.profile);
+
   const view = vscode.window.createTreeView('reqforge.start', { treeDataProvider: new StartView() });
 
   // Clicking the activity-bar icon opens the panel rather than showing an

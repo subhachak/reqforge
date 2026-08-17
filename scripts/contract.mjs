@@ -31,6 +31,8 @@ export { resolveTools, capabilitiesFrom, pickArg, argType } from '${path.resolve
 export { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 export { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 export { z } from 'zod';
+export { AnthropicLlmAdapter } from '${path.resolve('src/adapters/llm/anthropic.ts')}';
+export { withCachedPrefix } from '${path.resolve('src/core/prompts.ts')}';
 `
 );
 
@@ -49,6 +51,8 @@ await esbuild.build({
 });
 
 const {
+  AnthropicLlmAdapter,
+  withCachedPrefix,
   AtlassianRestAdapter,
   AtlassianMcpAdapter,
   resolveTools,
@@ -655,6 +659,199 @@ section('Routing: description shape follows the declared schema');
   const { argType } = createRequire(import.meta.url)(out);
   check('string description => markdown', argType(asString.ops['jira.createIssue'], 'description') === 'string');
   check('object description => ADF', argType(asObject.ops['jira.createIssue'], 'description') === 'object');
+}
+
+/* ------------------------------------------------- Anthropic LLM adapter */
+
+section('Anthropic: request shaping');
+{
+  /** Captures the outgoing request instead of sending it. */
+  const stub = (reply) => {
+    const seen = [];
+    const fetch = async (url, init) => {
+      const body = JSON.parse(init.body);
+      seen.push({ url: String(url), body });
+      const payload = typeof reply === 'function' ? reply(body, seen.length) : reply;
+      if (payload instanceof Error) throw payload;
+      if (payload.__status) {
+        return new Response(JSON.stringify({ error: { message: 'boom' } }), {
+          status: payload.__status,
+          headers: { 'content-type': 'application/json' }
+        });
+      }
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      });
+    };
+    return { fetch, seen };
+  };
+
+  const toolUse = (input) => ({
+    id: 'msg_1',
+    type: 'message',
+    role: 'assistant',
+    model: 'claude-sonnet-4-5',
+    stop_reason: 'tool_use',
+    usage: { input_tokens: 10, output_tokens: 5 },
+    content: [{ type: 'tool_use', id: 'tu_1', name: 'emit_thing', input }]
+  });
+
+  const request = (over = {}) => ({
+    messages: [{ role: 'user', content: 'the varying part' }],
+    toolName: 'emit_thing',
+    toolDescription: 'Emit a thing.',
+    inputSchema: { type: 'object', properties: { value: { type: 'string' } }, required: ['value'] },
+    parse: (raw) => (raw && typeof raw.value === 'string' ? { ok: true, value: raw } : { ok: false, error: 'value must be a string' }),
+    justification: 'testing',
+    ...over
+  });
+
+  {
+    const { fetch, seen } = stub(toolUse({ value: 'ok' }));
+    const llm = new AnthropicLlmAdapter({ apiKey: 'k', fetch });
+    const out = await llm.requestStructured(request());
+
+    check('anthropic: returns the parsed tool input', out.value === 'ok', JSON.stringify(out));
+    check('anthropic: forces the tool call', seen[0].body.tool_choice.type === 'tool' && seen[0].body.tool_choice.name === 'emit_thing', JSON.stringify(seen[0].body.tool_choice));
+    check('anthropic: sends exactly one tool', seen[0].body.tools.length === 1);
+    check('anthropic: passes the schema through untouched', seen[0].body.tools[0].input_schema.required.join() === 'value');
+    check('anthropic: makes one request when the first parses', seen.length === 1, String(seen.length));
+    check('anthropic: sends no system block without a prefix', seen[0].body.system === undefined);
+  }
+
+  {
+    // A long shared prefix must travel as a cache block, not inlined — that is
+    // the entire reason cachedPrefix exists.
+    const long = 'SOURCE '.repeat(1000);
+    const { fetch, seen } = stub(toolUse({ value: 'ok' }));
+    const llm = new AnthropicLlmAdapter({ apiKey: 'k', fetch });
+    await llm.requestStructured(request({ cachedPrefix: long }));
+
+    const sys = seen[0].body.system;
+    check('anthropic: a long prefix becomes a system block', Array.isArray(sys) && sys.length === 1, JSON.stringify(sys)?.slice(0, 80));
+    check('anthropic: the block is marked cacheable', sys[0].cache_control.type === 'ephemeral', JSON.stringify(sys[0].cache_control));
+    check('anthropic: the prefix is not also inlined', !seen[0].body.messages[0].content.includes('SOURCE'), seen[0].body.messages[0].content.slice(0, 60));
+    check('anthropic: the varying part still travels', seen[0].body.messages[0].content.includes('the varying part'));
+  }
+
+  {
+    // Below the minimum, caching costs more than it saves — so the same text is
+    // inlined, and the model must still see all of it.
+    const short = 'tiny prefix';
+    const { fetch, seen } = stub(toolUse({ value: 'ok' }));
+    const llm = new AnthropicLlmAdapter({ apiKey: 'k', fetch });
+    await llm.requestStructured(request({ cachedPrefix: short }));
+
+    check('anthropic: a short prefix is not cached', seen[0].body.system === undefined);
+    check('anthropic: a short prefix is inlined instead of dropped', seen[0].body.messages[0].content.startsWith(short), seen[0].body.messages[0].content.slice(0, 40));
+  }
+
+  {
+    // The repair path: one retry with the validation error fed back.
+    const { fetch, seen } = stub((_body, n) => toolUse(n === 1 ? { value: 42 } : { value: 'fixed' }));
+    const llm = new AnthropicLlmAdapter({ apiKey: 'k', fetch });
+    const out = await llm.requestStructured(request());
+
+    check('anthropic: repairs one bad payload', out.value === 'fixed', JSON.stringify(out));
+    check('anthropic: repairs exactly once', seen.length === 2, String(seen.length));
+    check('anthropic: the repair feeds back the validation error', JSON.stringify(seen[1].body.messages).includes('value must be a string'));
+  }
+
+  {
+    // Two bad payloads is the schema's fault, not the model's; stop paying.
+    const { fetch, seen } = stub(toolUse({ value: 42 }));
+    const llm = new AnthropicLlmAdapter({ apiKey: 'k', fetch });
+    let threw = '';
+    try {
+      await llm.requestStructured(request());
+    } catch (err) {
+      threw = err.message;
+    }
+    check('anthropic: gives up after two bad payloads', /did not match the expected schema, twice/.test(threw), threw);
+    check('anthropic: does not keep retrying', seen.length === 2, String(seen.length));
+  }
+
+  {
+    // A model that answers in prose instead of calling the tool.
+    const { fetch } = stub({
+      id: 'm', type: 'message', role: 'assistant', model: 'm', stop_reason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 1 },
+      content: [{ type: 'text', text: 'I would rather not.' }]
+    });
+    const llm = new AnthropicLlmAdapter({ apiKey: 'k', fetch });
+    let threw = '';
+    try {
+      await llm.requestStructured(request());
+    } catch (err) {
+      threw = err.message;
+    }
+    check('anthropic: a prose answer is reported, not parsed', /schema/.test(threw), threw);
+  }
+
+  {
+    const { fetch, seen } = stub({ __status: 429 });
+    const retries = [];
+    const llm = new AnthropicLlmAdapter({ apiKey: 'k', fetch, onRetry: (n, ms) => retries.push([n, ms]) });
+    let threw = '';
+    try {
+      await llm.requestStructured(request());
+    } catch (err) {
+      threw = err.message;
+    }
+    check('anthropic: a rate limit is retried', seen.length > 1, String(seen.length));
+    check('anthropic: retries are announced', retries.length > 0, JSON.stringify(retries));
+    check('anthropic: a rate limit ends with an actionable message', /rate limit/i.test(threw), threw);
+  }
+
+  {
+    const { fetch, seen } = stub({ __status: 400 });
+    const llm = new AnthropicLlmAdapter({ apiKey: 'k', fetch });
+    let threw = '';
+    try {
+      await llm.requestStructured(request());
+    } catch (err) {
+      threw = err.message;
+    }
+    check('anthropic: a 400 is not retried', seen.length === 1, String(seen.length));
+    check('anthropic: a 400 explains itself', /rejected the request/.test(threw), threw);
+  }
+
+  {
+    let threw = '';
+    try {
+      new AnthropicLlmAdapter({ apiKey: '' });
+    } catch (err) {
+      threw = err.message;
+    }
+    check('anthropic: a missing key fails at construction', /No Anthropic API key/.test(threw), threw);
+  }
+
+  {
+    const token = { isCancellationRequested: true, onCancellationRequested: () => ({ dispose() {} }) };
+    const { fetch, seen } = stub(toolUse({ value: 'ok' }));
+    const llm = new AnthropicLlmAdapter({ apiKey: 'k', fetch });
+    let threw = '';
+    try {
+      await llm.requestStructured(request(), token);
+    } catch (err) {
+      threw = err.message;
+    }
+    check('anthropic: a cancelled request is not sent', seen.length === 0 && /Cancelled/.test(threw), threw);
+  }
+}
+
+section('Cached prefix: adapters without caching must inline it');
+{
+  const msgs = [{ role: 'user', content: 'body' }];
+  check('prefix is prepended to the first message', withCachedPrefix(msgs, 'PREFIX')[0].content === 'PREFIX\n\nbody');
+  check('no prefix leaves the messages alone', withCachedPrefix(msgs)[0].content === 'body');
+  check('an empty prefix leaves the messages alone', withCachedPrefix(msgs, '')[0].content === 'body');
+  check(
+    'only the first message is touched',
+    withCachedPrefix([...msgs, { role: 'assistant', content: 'reply' }], 'P')[1].content === 'reply'
+  );
+  check('a prefix with no messages still travels', withCachedPrefix([], 'P')[0].content === 'P');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

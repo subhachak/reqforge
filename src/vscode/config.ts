@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import type { AdapterContext, LlmProvider, Transport } from '../registryTypes';
 
 const TOKEN_KEY = 'reqforge.atlassian.apiToken';
+/** Full profile only. Kept in the keychain for the same reason as the Atlassian token. */
+const ANTHROPIC_KEY = 'reqforge.anthropic.apiKey';
 
 export function cfg() {
   return vscode.workspace.getConfiguration('reqforge');
@@ -19,6 +21,18 @@ export async function clearApiToken(ctx: vscode.ExtensionContext): Promise<void>
   await ctx.secrets.delete(TOKEN_KEY);
 }
 
+export async function getAnthropicKey(ctx: vscode.ExtensionContext): Promise<string> {
+  return (await ctx.secrets.get(ANTHROPIC_KEY)) ?? '';
+}
+
+export async function setAnthropicKey(ctx: vscode.ExtensionContext, key: string): Promise<void> {
+  await ctx.secrets.store(ANTHROPIC_KEY, key);
+}
+
+export async function clearAnthropicKey(ctx: vscode.ExtensionContext): Promise<void> {
+  await ctx.secrets.delete(ANTHROPIC_KEY);
+}
+
 export async function adapterContext(ctx: vscode.ExtensionContext): Promise<AdapterContext> {
   const c = cfg();
   return {
@@ -27,7 +41,12 @@ export async function adapterContext(ctx: vscode.ExtensionContext): Promise<Adap
     email: c.get<string>('atlassian.email', '').trim(),
     apiToken: await getApiToken(ctx),
     llmProvider: c.get<LlmProvider>('llm.provider', 'copilot'),
-    modelFamily: c.get<string>('llm.modelFamily', '').trim()
+    modelFamily: c.get<string>('llm.modelFamily', '').trim(),
+    mcpEndpoint: c.get<string>('atlassian.mcpEndpoint', '').trim(),
+    // Read unconditionally: the restricted registry ignores it, and branching
+    // on the profile here would just move the decision away from the seam that
+    // is supposed to own it.
+    anthropicApiKey: await getAnthropicKey(ctx)
   };
 }
 

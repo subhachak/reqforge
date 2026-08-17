@@ -1482,6 +1482,38 @@ const memFs = () => {
   }
 
   {
+    // The panel overlaps reviewers only as far as the provider tolerates.
+    const peakFor = async (kind) => {
+      let live = 0;
+      let peak = 0;
+      const llm = {
+        ...fakeLlm(async (req) => {
+          if (req.toolName === 'emit_conflicts') return { conflicts: [] };
+          live++;
+          peak = Math.max(peak, live);
+          await new Promise((r) => setTimeout(r, 5));
+          live--;
+          const ids = req.inputSchema.properties.reviews.items.properties.criteria.items.properties.id.enum;
+          const refs = [...req.messages[0].content.matchAll(/<item ref="([^"]+)"/g)].map((x) => x[1]);
+          return {
+            reviews: refs.map((ref) => ({
+              ref,
+              criteria: ids.map((id) => ({ id, rating: 3, justification: 'j', suggestion: '' })),
+              observations: []
+            }))
+          };
+        }),
+        kind
+      };
+      await m.runPanel(llm, panelBacklog, { detectConflicts: false });
+      return peak;
+    };
+
+    check('copilot keeps the fan-out narrow', (await peakFor('copilot')) <= 2);
+    check('a provider with headroom fans out wider', (await peakFor('anthropic')) > 2);
+  }
+
+  {
     // A backlog where reviewers agree costs nothing extra.
     const llm = fakeLlm(async (req) => {
       if (req.toolName === 'emit_conflicts') throw new Error('the reconciler should not have run');

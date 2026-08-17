@@ -1,6 +1,7 @@
 import { runPanel } from './core/agents/panel';
 import { REVIEWERS } from './core/agents/reviewers';
 import { findDuplicates } from './core/pipeline/duplicates';
+import { AnthropicLlmAdapter } from './adapters/llm/anthropic';
 import { AtlassianMcpAdapter } from './adapters/atlassian/mcp';
 import { AtlassianRestAdapter } from './adapters/atlassian/rest';
 import { CopilotLlmAdapter } from './adapters/llm/copilot';
@@ -49,9 +50,12 @@ export const registry: AdapterRegistry = {
   createLlm(ctx: AdapterContext): LlmPort {
     switch (ctx.llmProvider) {
       case 'anthropic':
-        throw new Error(
-          'The Anthropic provider is not implemented yet. See src/registry.full.ts for the intended shape, and use "copilot" in the meantime.'
-        );
+        return new AnthropicLlmAdapter({
+          apiKey: ctx.anthropicApiKey ?? '',
+          model: ctx.modelFamily || undefined,
+          onRetry: ctx.onLlmRetry,
+          onCall: ctx.onLlmCall
+        });
       case 'fixture':
         return new FixtureLlmAdapter(ctx.fixtures ?? {});
       case 'copilot':

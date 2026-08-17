@@ -80,6 +80,11 @@
           "type": "string",
           "default": "",
           "markdownDescription": "Absolute path to a folder where backlog files are stored when no workspace is open. Leave empty to use workspace-relative path."
+        },
+        "reqforge.atlassian.mcpEndpoint": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "MCP server for the `mcp` transport. Either an `https://` URL, or a command line for a stdio server such as `npx -y mcp-remote https://mcp.atlassian.com/v1/sse` — the stdio form owns its own OAuth flow, so no Atlassian credentials pass through ReqForge. Full build only."
         }
       }
     },
@@ -91,6 +96,10 @@
       {
         "command": "reqforge.decomposePrd",
         "title": "ReqForge: Decompose Confluence PRD into Epics"
+      },
+      {
+        "command": "reqforge.setAnthropicKey",
+        "title": "ReqForge: Set Anthropic API Key"
       }
     ],
     "viewsContainers": {
@@ -115,6 +124,10 @@
         {
           "command": "reqforge.decomposePrd",
           "when": "false"
+        },
+        {
+          "command": "reqforge.setAnthropicKey",
+          "when": "reqforge.profile == 'full'"
         }
       ]
     },
@@ -142,6 +155,7 @@
     "contract": "node scripts/contract.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

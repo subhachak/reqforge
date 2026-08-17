@@ -141,6 +141,17 @@ export interface LlmMessage {
 export interface StructuredRequest<T> {
   /** Prompt messages. Instructions go in the first user message — vscode.lm has no system role. */
   messages: LlmMessage[];
+  /**
+   * Content identical across a burst of related requests — the source document
+   * shared by four reviewers, or the PRD shared by every per-epic story call.
+   *
+   * Declared separately rather than inlined because caching only pays on an
+   * exact shared *prefix*, and only the caller knows which part that is. An
+   * adapter with prompt caching sends this as a cacheable block; one without
+   * simply prepends it, so the model sees the same prompt either way and no
+   * pipeline has to know which provider it is talking to.
+   */
+  cachedPrefix?: string;
   /** Name of the emit-tool the model must call. One tool per stage. */
   toolName: string;
   toolDescription: string;

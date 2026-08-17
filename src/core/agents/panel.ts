@@ -137,13 +137,25 @@ function reviewToolSchema(reviewer: ReviewerDef, level: Level, ids: string[]) {
   };
 }
 
+/**
+ * The half of the prompt every reviewer sees identically.
+ *
+ * Split out so it can be sent as a cacheable prefix: caching pays only on an
+ * exact shared prefix, and four reviewers reading the same source is the
+ * clearest instance of that in this system. Adapters without caching prepend
+ * it, so the model sees the same prompt either way.
+ */
+function sharedPrefix(context: string, source: string): string {
+  return [context ? `## Context\n${context}` : '', source ? `## Source material\n\n${source}` : '']
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 function reviewPrompt(
   reviewer: ReviewerDef,
   level: Level,
   ids: string[],
-  items: { ref: string; title: string; markdown: string }[],
-  context: string,
-  source: string
+  items: { ref: string; title: string; markdown: string }[]
 ): string {
   const defs = ids
     .map((id) => criterionById(id))
@@ -175,8 +187,6 @@ function reviewPrompt(
     '',
     defs,
     '',
-    context ? `## Context\n${context}\n` : '',
-    source ? `## Source material\n\n${source}\n` : '',
     `## ${level === 'story' ? 'Stories' : 'Epics'} to review`,
     '',
     items.map((i) => `<item ref="${i.ref}">\n# ${i.title}\n\n${i.markdown}\n</item>`).join('\n\n'),
@@ -237,7 +247,11 @@ function sourceBlock(backlog: Backlog): string {
 export async function runPanel(llm: LlmPort, backlog: Backlog, opts: PanelOptions = {}): Promise<PanelResult> {
   const orchestrator = new Orchestrator(llm, {
     maxTotalRequests: opts.maxTotalRequests,
-    concurrency: opts.concurrency,
+    // Copilot rate-limits hard enough that fanning four reviewers out at once
+    // makes a run slower, not faster; a provider with real headroom does not,
+    // and the panel is the one place in this system with genuinely independent
+    // work to overlap.
+    concurrency: opts.concurrency ?? (llm.kind === 'anthropic' ? 4 : 2),
     onEvent: opts.onEvent,
     token: opts.token
   });
@@ -295,8 +309,7 @@ export async function runPanel(llm: LlmPort, backlog: Backlog, opts: PanelOption
               'epic',
               epicIds,
               batch.map((e) => ({ ref: e.ref, title: e.title, markdown: epicToMarkdown(e) })),
-              context,
-              source,
+              sharedPrefix(context, source),
               opts.token
             );
 
@@ -327,8 +340,7 @@ export async function runPanel(llm: LlmPort, backlog: Backlog, opts: PanelOption
               'story',
               storyIds,
               batch.map(({ story }) => ({ ref: story.ref, title: story.title, markdown: storyToMarkdown(story) })),
-              epicContext,
-              source,
+              sharedPrefix(epicContext, source),
               opts.token
             );
 
@@ -375,13 +387,13 @@ async function callReviewer(
   level: Level,
   ids: string[],
   items: { ref: string; title: string; markdown: string }[],
-  context: string,
-  source: string,
+  prefix: string,
   token: LlmCancellation | undefined
 ): Promise<{ ref: string; criteria: AttributedCriterion[]; observations: Omit<Observation, 'level' | 'ref'>[] }[]> {
   const parsed = await llm.requestStructured<z.infer<typeof ReviewSchema>>(
     {
-      messages: [{ role: 'user', content: reviewPrompt(reviewer, level, ids, items, context, source) }],
+      cachedPrefix: prefix,
+      messages: [{ role: 'user', content: reviewPrompt(reviewer, level, ids, items) }],
       toolName: 'emit_review',
       toolDescription: `Record the ${reviewer.name} reviewer's findings for each ${level}.`,
       inputSchema: reviewToolSchema(reviewer, level, ids),

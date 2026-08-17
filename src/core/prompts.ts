@@ -203,6 +203,24 @@ export function refineIssuePrompt(
 }
 
 /** Appended to a retry when the first response failed schema validation. */
+/**
+ * Folds a cacheable prefix back into the messages, for adapters without prompt
+ * caching.
+ *
+ * Every LlmPort implementation must apply this or send the prefix as a cache
+ * block. Ignoring the field would silently drop content the caller believed it
+ * had sent — the prefix carries the source document, so the model would review
+ * a backlog against nothing and report confidently on it.
+ */
+export function withCachedPrefix(
+  messages: { role: 'user' | 'assistant'; content: string }[],
+  cachedPrefix?: string
+): { role: 'user' | 'assistant'; content: string }[] {
+  if (!cachedPrefix) return messages;
+  if (messages.length === 0) return [{ role: 'user', content: cachedPrefix }];
+  return messages.map((m, i) => (i === 0 ? { ...m, content: `${cachedPrefix}\n\n${m.content}` } : m));
+}
+
 export function repairPrompt(error: string): string {
   return [
     'Your previous tool call did not satisfy the schema and was rejected.',
