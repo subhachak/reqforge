@@ -286,10 +286,14 @@ export class AtlassianMcpAdapter implements AtlassianPort {
   }
 
   /**
-   * The remote server does not expose createmeta field requirements, so this
-   * reports none. `jira.createmeta` is still advertised when the issue-type
-   * tool resolved, because the pipeline uses it for type names; a create that
-   * hits a mandatory custom field fails at create time with Jira's own message.
+   * Not implemented yet, so a create that hits a mandatory custom field fails
+   * at create time with Jira's own message rather than being caught in the
+   * plan.
+   *
+   * This is a gap, not a limitation: Atlassian's server does expose
+   * `getJiraIssueTypeMetaWithFields`, verified against a live tenant with
+   * scripts/probeMcp.mjs. Wiring it would need a second routed operation and
+   * an issue-type id, which `listIssueTypes` already returns.
    */
   async requiredFields(): Promise<string[]> {
     return [];
