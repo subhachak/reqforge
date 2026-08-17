@@ -27,6 +27,17 @@ export interface SetupState {
   epicIssueType: string;
   storyIssueType: string;
   modelFamily: string;
+  /** Which backend the model calls go to. Only 'copilot' exists in the restricted build. */
+  llmProvider: string;
+  /** How Atlassian is reached. Only 'rest' exists in the restricted build. */
+  transport: string;
+  /** MCP server command or URL. Empty, and irrelevant, on the REST transport. */
+  mcpEndpoint: string;
+  /** True once an Anthropic key is in the keychain. Never the key itself. */
+  hasAnthropicKey: boolean;
+  /** What this build actually supports, so the form offers no dead options. */
+  availableTransports: string[];
+  availableLlmProviders: string[];
   storageFolder: string;
   /**
    * The resolved folder backlogs are actually written to. Shown in settings
@@ -121,7 +132,18 @@ export type HostMessage = { type: 'state'; state: PanelState } | { type: 'pushed
 
 /** Fields a user can change in the settings form. The token has its own message. */
 export type SettingsPatch = Partial<
-  Pick<SetupState, 'baseUrl' | 'email' | 'projectKey' | 'epicIssueType' | 'storyIssueType' | 'modelFamily'>
+  Pick<
+    SetupState,
+    | 'baseUrl'
+    | 'email'
+    | 'projectKey'
+    | 'epicIssueType'
+    | 'storyIssueType'
+    | 'modelFamily'
+    | 'llmProvider'
+    | 'transport'
+    | 'mcpEndpoint'
+  >
 >;
 
 export type WebviewMessage =
@@ -130,6 +152,7 @@ export type WebviewMessage =
   /* setup */
   | { type: 'saveSettings'; patch: SettingsPatch }
   | { type: 'setToken' }
+  | { type: 'setAnthropicKey' }
   | { type: 'clearToken' }
   | { type: 'browseStorageFolder' }
   | { type: 'testConnection' }

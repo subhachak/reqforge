@@ -491,3 +491,11 @@ pre.readonly {
 }
 .disclosure:hover { color: var(--fg); background: none; }
 .disclosure-hint { font-size: 11px; color: var(--muted); font-weight: 400; }
+
+/* Multi-line probe output — the MCP tool-resolution table. Scrolls rather than
+   forcing the settings column wide. */
+.probe-detail {
+  margin: 6px 0 0; min-width: 0; overflow-x: auto; color: var(--muted);
+  font-family: var(--vscode-editor-font-family, monospace); font-size: 11px;
+  white-space: pre; line-height: 1.5;
+}

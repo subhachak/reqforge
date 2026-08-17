@@ -173,7 +173,7 @@ export class AtlassianMcpAdapter implements AtlassianPort {
     const resolved = this.routing?.ops[name];
     if (!resolved) {
       throw new AtlassianError(
-        `The MCP server at "${this.opts.endpoint}" exposes no tool for ${name}. Run "ReqForge: Check Connection" to see what it does expose.`
+        `The MCP server at "${this.opts.endpoint}" exposes no tool for ${name}. Open ReqForge settings and press "Test connections" to see what it does expose.`
       );
     }
     return resolved;
@@ -320,7 +320,7 @@ export class AtlassianMcpAdapter implements AtlassianPort {
     await this.connect();
     if (!this.caps.has('graph.search')) {
       throw new AtlassianError(
-        'This MCP server exposes no Teamwork Graph search tool. Run "ReqForge: Check Connection" to see what it does expose.'
+        'This MCP server exposes no Teamwork Graph search tool. Open ReqForge settings and press "Test connections" to see what it does expose.'
       );
     }
     const raw = await this.rawCall(this.op('graph.search'), {

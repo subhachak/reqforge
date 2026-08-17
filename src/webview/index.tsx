@@ -5,7 +5,7 @@ import { syncStatus } from '../core/model';
 import type { AcceptanceCriterion } from '../core/schemas';
 import type { CriterionDef, ItemQuality } from '../core/rubric/index';
 import type { Conflict, Observation } from '../core/agents/types';
-import type { HostMessage, PanelState, WebviewMessage } from '../shared/protocol';
+import type { HostMessage, PanelState, SettingsPatch, WebviewMessage } from '../shared/protocol';
 import './styles.css';
 
 /**
@@ -27,6 +27,12 @@ const EMPTY: PanelState = {
     epicIssueType: 'Epic',
     storyIssueType: 'Story',
     modelFamily: '',
+    llmProvider: 'copilot',
+    transport: 'rest',
+    mcpEndpoint: '',
+    hasAnthropicKey: false,
+    availableTransports: ['rest'],
+    availableLlmProviders: ['copilot'],
     storageFolder: '',
   storageLocation: '',
     hasToken: false,
@@ -1199,10 +1205,18 @@ function StatusLine({ label, probe }: { label: string; probe: { state: string; d
   const colour =
     probe.state === 'ok' ? 'var(--green)' : probe.state === 'failed' ? 'var(--red)' : 'var(--muted)';
   const text = probe.state === 'unknown' ? 'Not checked yet' : probe.detail;
+  // The MCP check answers with a summary line followed by a table of which
+  // server tool satisfied which operation. The table needs fixed-width
+  // alignment and its own horizontal scroll; the summary needs to wrap. Sharing
+  // one scroll box clips the sentence you read first.
+  const [summary, ...table] = text.split('\n');
   return (
     <div className="row" style={{ alignItems: 'baseline' }}>
       <span style={{ width: 90, flex: 'none', color: 'var(--muted)', fontSize: 12 }}>{label}</span>
-      <span style={{ color: colour }}>{text}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ color: colour }}>{summary}</span>
+        {table.length > 0 && <pre className="probe-detail">{table.join('\n')}</pre>}
+      </div>
     </div>
   );
 }
@@ -1220,7 +1234,8 @@ function Setup({ state }: { state: PanelState }) {
     projectKey: s.projectKey,
     epicIssueType: s.epicIssueType,
     storyIssueType: s.storyIssueType,
-    modelFamily: s.modelFamily
+    modelFamily: s.modelFamily,
+    mcpEndpoint: s.mcpEndpoint
   });
 
   // Adopt host values when they change underneath us (e.g. the token prompt or storage folder selection).
@@ -1231,12 +1246,16 @@ function Setup({ state }: { state: PanelState }) {
       projectKey: s.projectKey,
       epicIssueType: s.epicIssueType,
       storyIssueType: s.storyIssueType,
-      modelFamily: s.modelFamily
+      modelFamily: s.modelFamily,
+      mcpEndpoint: s.mcpEndpoint
     });
-  }, [s.baseUrl, s.email, s.projectKey, s.epicIssueType, s.storyIssueType, s.modelFamily]);
+  }, [s.baseUrl, s.email, s.projectKey, s.epicIssueType, s.storyIssueType, s.modelFamily, s.mcpEndpoint]);
 
-  const save = (patch: Partial<typeof form>) => {
-    setForm({ ...form, ...patch });
+  // Takes the full patch type, not just the locally-edited fields: the
+  // transport and provider selects write settings without a form entry, since
+  // they read straight from host state.
+  const save = (patch: SettingsPatch) => {
+    setForm((f) => ({ ...f, ...patch }) as typeof f);
     post({ type: 'saveSettings', patch });
   };
 
@@ -1399,6 +1418,72 @@ function Setup({ state }: { state: PanelState }) {
         />
       </Field>
 
+      {/* Only rendered when the build has more than one option. The restricted
+          build has exactly one transport and one provider, so showing a
+          one-item dropdown would imply a choice that does not exist. */}
+      {(s.availableTransports.length > 1 || s.availableLlmProviders.length > 1) && (
+        <>
+          <div className="section-head">
+            <h2>Connections</h2>
+          </div>
+
+          {s.availableTransports.length > 1 && (
+            <Field label="Atlassian transport" hint="MCP adds Teamwork Graph search; REST cannot reach it">
+              <select value={s.transport} onChange={(e) => save({ transport: e.target.value })}>
+                {s.availableTransports.map((t) => (
+                  <option key={t} value={t}>
+                    {t === 'mcp' ? 'MCP (Teamwork Graph)' : 'REST'}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+
+          {s.transport === 'mcp' && (
+            <Field
+              label="MCP server"
+              hint="an https:// URL, or a command line — a stdio proxy handles its own sign-in"
+            >
+              {/* No concrete host in the placeholder: the webview bundle is
+                  shared by both profiles, so a literal Atlassian MCP domain
+                  would ship inside the restricted build — which is exactly what
+                  a client audit flags. The full address is in the README. */}
+              <input
+                value={form.mcpEndpoint}
+                placeholder="npx -y mcp-remote <your MCP server URL>"
+                onChange={(e) => setForm({ ...form, mcpEndpoint: e.target.value })}
+                onBlur={(e) => save({ mcpEndpoint: e.target.value })}
+              />
+            </Field>
+          )}
+
+          {s.availableLlmProviders.length > 1 && (
+            <Field label="Model provider" hint="Copilot uses your VS Code entitlement; Anthropic uses your own key">
+              <select value={s.llmProvider} onChange={(e) => save({ llmProvider: e.target.value })}>
+                {s.availableLlmProviders.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+
+          {s.llmProvider === 'anthropic' && (
+            <Field label="Anthropic API key" hint="stored in the OS keychain, never in settings">
+              <div className="row">
+                <span style={{ flex: 1, color: s.hasAnthropicKey ? 'var(--green)' : 'var(--muted)' }}>
+                  {s.hasAnthropicKey ? 'A key is stored.' : 'No key stored yet.'}
+                </span>
+                <button onClick={() => post({ type: 'setAnthropicKey' })}>
+                  {s.hasAnthropicKey ? 'Replace key' : 'Set key'}
+                </button>
+              </div>
+            </Field>
+          )}
+        </>
+      )}
+
       <div className="section-head">
         <h2>Check</h2>
         <div className="spacer" />
@@ -1408,7 +1493,9 @@ function Setup({ state }: { state: PanelState }) {
       </div>
 
       <StatusLine label="Atlassian" probe={s.atlassian} />
-      <StatusLine label="Copilot" probe={s.model} />
+      {/* Named for the provider actually configured: labelling an Anthropic
+          probe "Copilot" makes a failure impossible to diagnose. */}
+      <StatusLine label={s.llmProvider === 'anthropic' ? 'Anthropic' : 'Copilot'} probe={s.model} />
 
       <div style={{ display: 'flex', gap: 8, marginTop: 26, marginBottom: 40 }}>
         <button className="primary" disabled={!s.complete} onClick={() => post({ type: 'navigate', view: 'home' })}>

@@ -158,6 +158,12 @@ const view = process.env.HARNESS_VIEW || (complete ? 'home' : 'setup');
 const state = {
   view,
   setup: {
+    llmProvider: HARNESS_PANEL ? 'anthropic' : 'copilot',
+    transport: HARNESS_PANEL ? 'mcp' : 'rest',
+    mcpEndpoint: HARNESS_PANEL ? 'npx -y mcp-remote https://example-mcp.invalid/v1/sse' : '',
+    hasAnthropicKey: false,
+    availableTransports: HARNESS_PANEL ? ['rest', 'mcp'] : ['rest'],
+    availableLlmProviders: HARNESS_PANEL ? ['copilot', 'anthropic', 'fixture'] : ['copilot'],
     baseUrl: complete ? 'https://example.atlassian.net' : '',
     email: complete ? 'you@example.com' : '',
     projectKey: complete ? 'KAN' : '',
@@ -166,7 +172,21 @@ const state = {
     modelFamily: '',
     hasToken: complete,
     complete,
-    atlassian: { state: 'unknown', detail: '' },
+    // With the panel fixtures on, stand in a realistic MCP resolution table:
+    // it is multi-line, and rendering it legibly is the whole point of the check.
+    atlassian: HARNESS_PANEL
+      ? {
+          state: 'ok',
+          detail:
+            'MCP connected as po@example.com — 9/9 operations resolved, Teamwork Graph search available.\n' +
+            '  confluence.getPage -> getConfluencePage (cloudId)\n' +
+            '  jira.search -> searchJiraIssuesUsingJql (cloudId)\n' +
+            '  jira.createIssue -> createJiraIssue (cloudId)\n' +
+            '  jira.updateIssue -> editJiraIssue (cloudId)\n' +
+            '  jira.getIssue -> getJiraIssue (cloudId)\n' +
+            '  graph.search -> search (cloudId)'
+        }
+      : { state: 'unknown', detail: '' },
     model: { state: 'unknown', detail: '' }
   },
   recent: [

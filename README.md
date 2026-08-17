@@ -625,6 +625,123 @@ If the network or SSO fails on stage, set `reqforge.llm.provider` to `fixture` �
 
 ---
 
+## Running the full profile
+
+The restricted build is the client's. The full build adds the MCP transport
+(and with it Teamwork Graph search), the Anthropic provider, and the reviewer
+panel. None of that code exists in the restricted bundle — see *What protects
+the demo*.
+
+Nothing below has been run against a live Atlassian tenant yet. The MCP tool
+names are pattern-matched rather than hardcoded precisely because they are
+informed guesses; step 4 is where you find out what the server really calls
+them, and a miss is a pattern edit rather than a rewrite.
+
+### 1. Build and install the full VSIX
+
+```
+npm run package:full
+code --install-extension reqforge-full.vsix
+```
+
+`package:full` runs the same gate as a push — typecheck, both test suites, the
+compliance guard — then builds minified and packages. Reload the window
+afterwards. The output channel confirms which build you are on:
+
+```
+ReqForge activated — profile: full
+  transports: rest, mcp
+  providers:  copilot, anthropic, fixture
+```
+
+If it says `restricted`, the old VSIX is still installed; uninstall it first.
+
+### 2. Point it at an MCP server
+
+Open ReqForge → **Settings**, set **Atlassian transport** to *MCP (Teamwork
+Graph)*, and fill in **MCP server**. Two shapes work:
+
+- **A command line**, which is the normal choice for Atlassian's hosted server:
+  `npx -y mcp-remote https://mcp.atlassian.com/v1/sse`. The proxy owns the OAuth
+  flow — it opens a browser, you approve, and it holds the tokens. No Atlassian
+  credentials pass through ReqForge.
+- **An `https://` URL**, for a self-hosted or already-authenticated server. The
+  stored API token is sent as a bearer header in this shape only.
+
+The first connection with `mcp-remote` opens a browser window. If nothing
+happens, run the command once in a terminal to complete sign-in — it caches
+credentials under `~/.mcp-auth`, and ReqForge picks them up from there.
+
+**Site** must still be set, and must match the site you want. An account with
+several Atlassian sites gets an explicit error naming them rather than a silent
+write to whichever came back first.
+
+### 3. Choose the model provider
+
+Leave **Model provider** on `copilot` to change one thing at a time. To use
+Anthropic instead, select it and press **Set key** — the key goes to the OS
+keychain, never to settings and never into the webview.
+
+Anthropic buys two things: prompt caching, so the panel's four reviewers share
+one copy of the source rather than four, and enough rate-limit headroom that the
+panel fans out four-wide instead of two.
+
+### 4. Test connections — and read the table
+
+Press **Test connections**. The Atlassian line answers with a summary and then
+the routing table:
+
+```
+MCP connected as you@example.com — 9/9 operations resolved, Teamwork Graph search available.
+  confluence.getPage -> getConfluencePage (cloudId)
+  jira.search        -> searchJiraIssuesUsingJql (cloudId)
+  graph.search       -> search (cloudId)
+  ...
+```
+
+This is the step that matters. Read it against what you expected:
+
+- **`unresolved: <operation>`** — the server exposes no tool this build
+  recognises for that operation. Add a name pattern to `OP_PATTERNS` in
+  `src/adapters/atlassian/mcpRouting.ts` and rebuild. The `unused` list in the
+  same routing result tells you what the server *does* offer.
+- **`unmapped required: <arg>`** — the tool was found but wants an argument this
+  build cannot supply, so the capability is withheld rather than allowed to fail
+  later against a live project. Add a pattern to `ARG_PATTERNS`.
+- **`no Teamwork Graph search`** — expected on a server without a Rovo-style
+  tool. Everything else still works; *Check existing* disappears.
+- **An operation resolved to a tool that looks wrong** — most likely the two
+  search slots. Routing prefers whichever tool declares a `jql` argument for
+  JQL, so check the server's schema before changing patterns.
+
+### 5. Exercise it in the right order
+
+Change one thing at a time, cheapest first.
+
+1. **Decompose a PRD.** Proves the transport end to end — read, decompose, and
+   the model path — without writing anything to Jira.
+2. **Check quality on one epic.** Runs the panel. Expect ratings attributed to
+   *Product*, *Delivery*, *Test* and *Evidence*, plus observations from any of
+   them. If a reviewer fails, the notice names it and says which criteria went
+   unrated — a partial panel is a usable result and it will not hide that it was
+   partial.
+3. **Check existing** on an epic you know has a near-duplicate in the project.
+   This is the whole argument for MCP: it finds work stamp-label idempotency
+   cannot see. Nothing is ever skipped on its say-so.
+4. **Send to Jira**, into a scratch project first. Idempotency is by stamp
+   label, so a second send updates rather than duplicates — worth proving on
+   something disposable before a real backlog.
+
+### What to expect to go wrong
+
+- **"exposes no tool for X"** — step 4 above; a pattern edit.
+- **"offers several Atlassian sites"** — set **Site** to the one you want.
+- **A reviewer failing on a content filter.** The panel continues with the other
+  three. The rubric score is then computed over fewer criteria, which the notice
+  says out loud.
+- **Anthropic 401** — the stored key is stale; press *Set key* again.
+- **Anthropic 400** — usually the context window; try a smaller PRD section.
+
 ## Not built yet
 
 Honest list of what a weekend did not cover:

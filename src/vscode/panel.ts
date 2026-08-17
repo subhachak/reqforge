@@ -52,6 +52,7 @@ import {
   adapterContext,
   cfg,
   clearApiToken,
+  getAnthropicKey,
   dataFolder,
   hasWorkspace,
   promptForStorageFolder,
@@ -205,6 +206,14 @@ export class BacklogPanel {
       epicIssueType: c.get<string>('jira.epicIssueType', 'Epic'),
       storyIssueType: c.get<string>('jira.storyIssueType', 'Story'),
       modelFamily: c.get<string>('llm.modelFamily', ''),
+      llmProvider: c.get<string>('llm.provider', 'copilot'),
+      transport: c.get<string>('atlassian.transport', 'rest'),
+      mcpEndpoint: c.get<string>('atlassian.mcpEndpoint', ''),
+      hasAnthropicKey: Boolean(await getAnthropicKey(this.ctx)),
+      // Offered options come from the build, so the restricted form cannot
+      // show a provider it has no code for.
+      availableTransports: registry.availableTransports,
+      availableLlmProviders: registry.availableLlmProviders,
       storageFolder,
       // workspaceFolder() throws a readable error rather than a TypeError, and
       // is only reached when a workspace is actually open.
@@ -723,6 +732,14 @@ export class BacklogPanel {
         await this.send();
         return;
 
+      // Delegated to the palette command so the key is prompted for by VS Code
+      // and never travels through the webview.
+      case 'setAnthropicKey':
+        await vscode.commands.executeCommand('reqforge.setAnthropicKey');
+        this.probes.model = { state: 'unknown', detail: '' };
+        await this.send();
+        return;
+
       case 'clearToken':
         await clearApiToken(this.ctx);
         this.probes.atlassian = { state: 'unknown', detail: '' };
@@ -1018,6 +1035,9 @@ export class BacklogPanel {
       baseUrl: { key: 'atlassian.baseUrl', scope: 'global' },
       email: { key: 'atlassian.email', scope: 'global' },
       modelFamily: { key: 'llm.modelFamily', scope: 'global' },
+      llmProvider: { key: 'llm.provider', scope: 'global' },
+      transport: { key: 'atlassian.transport', scope: 'global' },
+      mcpEndpoint: { key: 'atlassian.mcpEndpoint', scope: 'global' },
       projectKey: { key: 'jira.projectKey', scope: 'workspace' },
       epicIssueType: { key: 'jira.epicIssueType', scope: 'workspace' },
       storyIssueType: { key: 'jira.storyIssueType', scope: 'workspace' }
