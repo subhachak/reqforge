@@ -213,6 +213,7 @@ export class BacklogPanel {
       transport: c.get<string>('atlassian.transport', 'rest'),
       mcpEndpoint: c.get<string>('atlassian.mcpEndpoint', ''),
       hasAnthropicKey: Boolean(await getAnthropicKey(this.ctx)),
+      profile: registry.profile,
       // Offered options come from the build, so the restricted form cannot
       // show a provider it has no code for.
       availableTransports: registry.availableTransports,

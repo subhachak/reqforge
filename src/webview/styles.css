@@ -499,3 +499,9 @@ pre.readonly {
   font-family: var(--vscode-editor-font-family, monospace); font-size: 11px;
   white-space: pre; line-height: 1.5;
 }
+
+/* Which build is installed. Quiet, but present where setup is verified. */
+.build-badge {
+  padding: 2px 8px; border-radius: 999px; font-size: 11px;
+  border: 1px solid var(--border); color: var(--muted);
+}

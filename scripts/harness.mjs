@@ -162,6 +162,7 @@ const state = {
     transport: HARNESS_PANEL ? 'mcp' : 'rest',
     mcpEndpoint: HARNESS_PANEL ? 'npx -y mcp-remote https://example-mcp.invalid/v1/sse' : '',
     hasAnthropicKey: false,
+    profile: HARNESS_PANEL ? 'full' : 'restricted',
     availableTransports: HARNESS_PANEL ? ['rest', 'mcp'] : ['rest'],
     availableLlmProviders: HARNESS_PANEL ? ['copilot', 'anthropic', 'fixture'] : ['copilot'],
     baseUrl: complete ? 'https://example.atlassian.net' : '',

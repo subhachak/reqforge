@@ -35,6 +35,13 @@ export interface SetupState {
   mcpEndpoint: string;
   /** True once an Anthropic key is in the keychain. Never the key itself. */
   hasAnthropicKey: boolean;
+  /**
+   * Which build this is. Shown in settings because "am I running the full
+   * version?" was only answerable from an output channel that does not exist
+   * until the extension activates — so the first place anyone looks could not
+   * answer the first question they have.
+   */
+  profile: string;
   /** What this build actually supports, so the form offers no dead options. */
   availableTransports: string[];
   availableLlmProviders: string[];

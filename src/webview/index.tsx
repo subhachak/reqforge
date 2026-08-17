@@ -31,6 +31,7 @@ const EMPTY: PanelState = {
     transport: 'rest',
     mcpEndpoint: '',
     hasAnthropicKey: false,
+    profile: 'restricted',
     availableTransports: ['rest'],
     availableLlmProviders: ['copilot'],
     storageFolder: '',
@@ -1486,6 +1487,9 @@ function Setup({ state }: { state: PanelState }) {
 
       <div className="section-head">
         <h2>Check</h2>
+        <span className="build-badge" title="Which ReqForge build is installed">
+          {s.profile === 'full' ? 'Studio build' : 'Restricted build'}
+        </span>
         <div className="spacer" />
         <button disabled={state.busy} onClick={() => post({ type: 'testConnection' })}>
           Test connections
