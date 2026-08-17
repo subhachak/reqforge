@@ -40,6 +40,13 @@ export function workspaceFolder(): vscode.WorkspaceFolder {
 }
 
 export function dataFolder(): string {
+  // If no workspace is open, use absolute storage folder with a subfolder
+  if (!hasWorkspace()) {
+    const storageFolder = cfg().get<string>('storageFolder', '').trim();
+    if (storageFolder) {
+      return '.reqforge'; // Still use relative path within the storage folder
+    }
+  }
   return cfg().get<string>('workspaceFolder', '.reqforge');
 }
 
@@ -49,6 +56,24 @@ export function dataFolder(): string {
  */
 export async function ensureConfigured(ctx: vscode.ExtensionContext): Promise<boolean> {
   const c = cfg();
+
+  // Check if we need a storage folder (no workspace open and no storage folder configured)
+  if (!hasWorkspace() && !c.get<string>('storageFolder', '').trim()) {
+    const msg = 'ReqForge needs a folder to store backlog files. Would you like to select one?';
+    const choice = await vscode.window.showInformationMessage(msg, { modal: true }, 'Select Folder', 'Open Workspace First');
+
+    if (choice === 'Open Workspace First') {
+      await vscode.commands.executeCommand('vscode.openFolder');
+      return false;
+    }
+
+    if (choice === 'Select Folder') {
+      const ok = await promptForStorageFolder();
+      if (!ok) return false;
+    } else {
+      return false;
+    }
+  }
 
   if (!c.get<string>('atlassian.baseUrl', '').trim()) {
     const value = await vscode.window.showInputBox({
@@ -95,6 +120,24 @@ export async function ensureConfigured(ctx: vscode.ExtensionContext): Promise<bo
 
 export function hasWorkspace(): boolean {
   return (vscode.workspace.workspaceFolders?.length ?? 0) > 0;
+}
+
+/**
+ * Prompts the user to select a folder for storing backlog files when no workspace is open.
+ */
+export async function promptForStorageFolder(): Promise<boolean> {
+  const uris = await vscode.window.showOpenDialog({
+    title: 'ReqForge — Select Storage Folder',
+    canSelectFiles: false,
+    canSelectFolders: true,
+    canSelectMany: false,
+    openLabel: 'Select Folder'
+  });
+
+  if (!uris || uris.length === 0) return false;
+
+  await cfg().update('storageFolder', uris[0].fsPath, vscode.ConfigurationTarget.Global);
+  return true;
 }
 
 /**

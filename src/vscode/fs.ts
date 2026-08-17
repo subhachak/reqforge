@@ -1,10 +1,20 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import type { FileSystemLike } from '../core/store';
-import { workspaceFolder } from './config';
+import { workspaceFolder, cfg, hasWorkspace } from './config';
 
 /** Workspace-relative file access for the backlog store. */
 export class WorkspaceFs implements FileSystemLike {
   private uri(relPath: string): vscode.Uri {
+    // Check if we should use absolute storage folder
+    if (!hasWorkspace()) {
+      const storageFolder = cfg().get<string>('storageFolder', '').trim();
+      if (storageFolder) {
+        return vscode.Uri.file(path.join(storageFolder, relPath));
+      }
+      // This should not happen if ensureConfigured() was called, but provide a clear error
+      throw new Error('ReqForge needs an open workspace folder or a configured storage folder to store backlog files.');
+    }
     return vscode.Uri.joinPath(workspaceFolder().uri, ...relPath.split('/'));
   }
 

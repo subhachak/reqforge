@@ -75,6 +75,11 @@
           "type": "string",
           "default": ".reqforge",
           "description": "Workspace-relative folder where proposals and the trace file are stored."
+        },
+        "reqforge.storageFolder": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Absolute path to a folder where backlog files are stored when no workspace is open. Leave empty to use workspace-relative path."
         }
       }
     },
