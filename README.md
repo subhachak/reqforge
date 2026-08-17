@@ -14,7 +14,11 @@ npm install && npm run check
 
 Then press <kbd>F5</kbd> in VS Code ("Run ReqForge (restricted profile)") to launch an Extension Development Host.
 
-In the dev host, **open a folder first** — the backlog is stored workspace-relative — then click
+In the dev host, open a folder first, or let setup ask you for a storage folder — backlogs are
+written relative to the open workspace, or to `reqforge.storageFolder` when there is no workspace.
+Settings always shows the folder actually in use, because a workspace silently takes precedence
+over a configured storage folder and files written in one mode otherwise look lost in the other.
+Then click
 the ReqForge icon in the activity bar. That opens the panel directly; there is no tree to navigate
 first. <kbd>⌘⇧P</kbd> → **`ReqForge: Open`** does the same.
 

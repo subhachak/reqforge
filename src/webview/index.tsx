@@ -27,6 +27,7 @@ const EMPTY: PanelState = {
     storyIssueType: 'Story',
     modelFamily: '',
     storageFolder: '',
+  storageLocation: '',
     hasToken: false,
     hasWorkspace: false,
     complete: false,
@@ -1553,6 +1554,20 @@ function Setup({ state }: { state: PanelState }) {
           </a>
         </div>
       </Field>
+
+      {s.storageLocation && (
+        <Field label="Backlogs are stored in" hint="the folder ReqForge reads and writes">
+          <div className="chip-row">
+            <code style={{ fontSize: 12, color: 'var(--muted)', wordBreak: 'break-all' }}>{s.storageLocation}</code>
+          </div>
+          {s.hasWorkspace && s.storageFolder && (
+            <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 6 }}>
+              A storage folder is also set ({s.storageFolder}), but the open workspace takes precedence. Anything
+              saved without a workspace open is still in that folder.
+            </p>
+          )}
+        </Field>
+      )}
 
       <div className="section-head">
         <h2>Jira project</h2>

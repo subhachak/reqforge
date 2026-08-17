@@ -39,7 +39,17 @@ import type {
   View,
   WebviewMessage
 } from '../shared/protocol';
-import { adapterContext, cfg, clearApiToken, dataFolder, promptForToken, updateSetting } from './config';
+import {
+  adapterContext,
+  cfg,
+  clearApiToken,
+  dataFolder,
+  hasWorkspace,
+  promptForStorageFolder,
+  workspaceFolder,
+  promptForToken,
+  updateSetting
+} from './config';
 import { WorkspaceFs } from './fs';
 
 /**
@@ -172,7 +182,7 @@ export class BacklogPanel {
     const projectKey = c.get<string>('jira.projectKey', '').trim();
     const storageFolder = c.get<string>('storageFolder', '').trim();
     const hasToken = Boolean(await this.ctx.secrets.get('reqforge.atlassian.apiToken'));
-    const hasWorkspace = (vscode.workspace.workspaceFolders?.length ?? 0) > 0;
+    const workspaceOpen = hasWorkspace();
     return {
       baseUrl,
       email,
@@ -181,9 +191,16 @@ export class BacklogPanel {
       storyIssueType: c.get<string>('jira.storyIssueType', 'Story'),
       modelFamily: c.get<string>('llm.modelFamily', ''),
       storageFolder,
+      // workspaceFolder() throws a readable error rather than a TypeError, and
+      // is only reached when a workspace is actually open.
+      storageLocation: workspaceOpen
+        ? `${workspaceFolder().uri.fsPath}/${dataFolder()}`
+        : storageFolder
+          ? `${storageFolder}/${dataFolder()}`
+          : '',
       hasToken,
-      hasWorkspace,
-      complete: Boolean(baseUrl && email && projectKey && hasToken && (hasWorkspace || storageFolder)),
+      hasWorkspace: workspaceOpen,
+      complete: Boolean(baseUrl && email && projectKey && hasToken && (workspaceOpen || storageFolder)),
       atlassian: this.probes.atlassian,
       model: this.probes.model
     };
@@ -425,8 +442,10 @@ export class BacklogPanel {
       await this.reloadRubric();
       this.notice = { kind: 'info', message: 'Created .reqforge/rubric.yaml — edit it to set your own standard.' };
     }
-    const uri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, ...relPath.split('/'));
-    await vscode.window.showTextDocument(uri);
+    // Ask the store where that actually is. Joining onto workspaceFolders[0]
+    // here threw for anyone running without a workspace open — the file was
+    // written correctly and then opening it crashed.
+    await vscode.window.showTextDocument(fs.resolve(relPath));
     await this.send();
   }
 
@@ -869,18 +888,8 @@ export class BacklogPanel {
   }
 
   private async browseStorageFolder() {
-    const uris = await vscode.window.showOpenDialog({
-      title: 'ReqForge — Select Storage Folder',
-      canSelectFiles: false,
-      canSelectFolders: true,
-      canSelectMany: false,
-      openLabel: 'Select Folder'
-    });
-
-    if (uris && uris.length > 0) {
-      await cfg().update('storageFolder', uris[0].fsPath, vscode.ConfigurationTarget.Global);
-      await this.send();
-    }
+    // Same dialog as first-run setup, so the two cannot drift apart.
+    if (await promptForStorageFolder()) await this.send();
   }
 
   private async testConnection() {

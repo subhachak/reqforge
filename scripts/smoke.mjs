@@ -1093,5 +1093,38 @@ const memFs = () => {
   check('backup: removing a backlog removes its backup too', !fs.files.has('.reqforge/x.backlog.yaml.bak'));
 }
 
+/* ------------------------------------------------ assumptions about the host */
+
+{
+  // ReqForge can run with no workspace open, using a configured storage folder.
+  // Any code that reaches for workspaceFolders[0] with a non-null assertion
+  // throws in that mode — and the assertion is exactly what stops the compiler
+  // from telling you. One such line shipped and crashed "Create rubric file".
+  const { readdirSync, statSync } = await import('node:fs');
+  const walk = (dir) =>
+    readdirSync(dir).flatMap((name) => {
+      const full = `${dir}/${name}`;
+      return statSync(full).isDirectory() ? walk(full) : [full];
+    });
+
+  const offenders = walk('src')
+    .filter((f) => /\.tsx?$/.test(f))
+    .map((f) => ({ file: f, text: readFileSync(f, 'utf8') }))
+    .filter(({ text }) => /workspaceFolders!\s*\[/.test(text))
+    .map(({ file }) => file);
+
+  check(
+    'no file asserts workspaceFolders is non-empty',
+    offenders.length === 0,
+    `${offenders.join(', ')} — use WorkspaceFs.resolve(), which honours the storage folder`
+  );
+
+  // And the folder picker should exist once.
+  const pickers = walk('src')
+    .filter((f) => /\.tsx?$/.test(f))
+    .filter((f) => readFileSync(f, 'utf8').includes('showOpenDialog'));
+  check('the folder picker is defined in one place', pickers.length === 1, pickers.join(', '));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

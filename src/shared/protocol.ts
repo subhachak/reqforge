@@ -26,6 +26,12 @@ export interface SetupState {
   storyIssueType: string;
   modelFamily: string;
   storageFolder: string;
+  /**
+   * The resolved folder backlogs are actually written to. Shown in settings
+   * because a workspace silently takes precedence over a configured storage
+   * folder, and files written in one mode look lost in the other.
+   */
+  storageLocation: string;
   hasToken: boolean;
   hasWorkspace: boolean;
   /** Everything the tool needs before it can do anything useful. */

@@ -3,8 +3,19 @@ import * as path from 'path';
 import type { FileSystemLike } from '../core/store';
 import { workspaceFolder, cfg, hasWorkspace } from './config';
 
-/** Workspace-relative file access for the backlog store. */
+/**
+ * File access for the backlog store, relative either to the open workspace or
+ * to a configured storage folder when there is no workspace.
+ *
+ * `resolve` is public because callers sometimes need the real location — to
+ * open a file in an editor, say. Rebuilding that path elsewhere is how a
+ * no-workspace session ends up dereferencing workspaceFolders[0].
+ */
 export class WorkspaceFs implements FileSystemLike {
+  resolve(relPath: string): vscode.Uri {
+    return this.uri(relPath);
+  }
+
   private uri(relPath: string): vscode.Uri {
     // Check if we should use absolute storage folder
     if (!hasWorkspace()) {

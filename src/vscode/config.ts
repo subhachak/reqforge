@@ -31,6 +31,10 @@ export async function adapterContext(ctx: vscode.ExtensionContext): Promise<Adap
   };
 }
 
+export function hasWorkspace(): boolean {
+  return (vscode.workspace.workspaceFolders?.length ?? 0) > 0;
+}
+
 export function workspaceFolder(): vscode.WorkspaceFolder {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
@@ -39,14 +43,12 @@ export function workspaceFolder(): vscode.WorkspaceFolder {
   return folder;
 }
 
+/**
+ * The folder name backlogs live in, relative to whichever root applies — the
+ * open workspace, or the configured storage folder. The root is WorkspaceFs's
+ * business; this is only the name, and it is the same either way.
+ */
 export function dataFolder(): string {
-  // If no workspace is open, use absolute storage folder with a subfolder
-  if (!hasWorkspace()) {
-    const storageFolder = cfg().get<string>('storageFolder', '').trim();
-    if (storageFolder) {
-      return '.reqforge'; // Still use relative path within the storage folder
-    }
-  }
   return cfg().get<string>('workspaceFolder', '.reqforge');
 }
 
@@ -116,10 +118,6 @@ export async function ensureConfigured(ctx: vscode.ExtensionContext): Promise<bo
   }
 
   return true;
-}
-
-export function hasWorkspace(): boolean {
-  return (vscode.workspace.workspaceFolders?.length ?? 0) > 0;
 }
 
 /**
