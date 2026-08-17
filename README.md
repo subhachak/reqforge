@@ -625,6 +625,34 @@ If the network or SSO fails on stage, set `reqforge.llm.provider` to `fixture` �
 
 ---
 
+## Shipping the client build
+
+The client's repository is generated from this one, not forked. Roughly four
+fifths of the source is shared — the converters, the rubric, the push
+idempotency, the whole webview — and that shared part is where every bug in
+this project has actually lived, so it is written once.
+
+```
+npm run export:restricted ../reqforge-restricted
+```
+
+The file list is not hand-maintained: it comes from esbuild's metafile for the
+restricted build, expanded to follow type-only imports, which together are the
+real dependency graph. Anything not reachable from `registry.restricted.ts` is
+not copied. The export then refuses to finish if the graph reaches full-profile
+code, or if any exported file names an SDK, an adapter class, or the agent
+directory — and it drops README sections describing features the tree does not
+contain.
+
+The result is a standalone repository that installs, builds, tests and packages
+on its own, and in which the client can `grep` for MCP or Anthropic and find
+nothing. That is a stronger claim than a build flag, because it survives someone
+misconfiguring the build.
+
+Regenerate and commit whenever a shared fix should reach the client. Never edit
+the exported tree directly — the next export overwrites everything except
+`.git`.
+
 ## Running the full profile
 
 The restricted build is the client's. The full build adds the MCP transport
@@ -642,8 +670,14 @@ them, and a miss is a pattern edit rather than a rewrite.
 ```
 cd reqforge
 npm run package:full
-code --install-extension reqforge-full.vsix
+code --install-extension reqforge-studio.vsix
 ```
+
+The two builds are separate extensions — `reqforge.reqforge` (ReqForge) and
+`reqforge.reqforge-studio` (ReqForge Studio) — so installing one no longer
+silently replaces the other. They do still share command ids, so only one can
+be *enabled* at a time; the other warns and points at the Extensions view
+rather than failing with a registration error nobody can read.
 
 `package:full` runs the same gate as a push — typecheck, both test suites, the
 compliance guard — then packages and verifies the artifact, printing

@@ -1,4 +1,8 @@
-import type { CriterionResult, Level, Severity } from '../rubric/types';
+// What a review produces is shared vocabulary — the host, the protocol and the
+// webview all handle it, and the restricted repository must be able to name it
+// without naming this directory. Only the reviewer definitions below, which
+// describe how a review is produced, are specific to the full profile.
+export type { AttributedCriterion, Conflict, Observation, PanelResult, ReviewerRun } from '../findings';
 
 /**
  * Multi-agent review.
@@ -44,61 +48,10 @@ export interface Provenance {
   at: string;
 }
 
-/** A criterion rating carrying the reviewer that produced it. */
-export type AttributedCriterion = CriterionResult & { reviewerId: string };
 
-/** A finding outside the scored criteria — the NFR gap, the missing evidence. */
-export interface Observation {
-  reviewerId: string;
-  level: Level;
-  ref: string;
-  severity: Severity;
-  message: string;
-  /** Field to focus in the UI, when the observation belongs to one. */
-  field?: string;
-}
 
-/**
- * Two reviewers pulling an item in incompatible directions.
- *
- * Surfaced rather than resolved. When the delivery reviewer says to split an
- * epic and the product reviewer says its scope is already the minimum coherent
- * outcome, both are reasoning correctly from their own remit and the trade-off
- * is the PO's to make. A single critic silently picks one and the tension
- * disappears — which is exactly the information worth keeping.
- */
-export interface Conflict {
-  level: Level;
-  ref: string;
-  between: [string, string];
-  /** What each side is asking for, in its own words. */
-  positions: [string, string];
-  /** What the PO actually has to decide. */
-  tradeoff: string;
-}
 
-export interface ReviewerRun {
-  reviewerId: string;
-  ok: boolean;
-  /** Model requests actually consumed. */
-  requests: number;
-  ms: number;
-  /** Set when the reviewer failed. The panel continues without it. */
-  error?: string;
-  itemsRated: number;
-}
 
-export interface PanelResult {
-  /** Keyed by `cacheKey(level, ref, fingerprint)`, mergeable straight into the quality store. */
-  criteria: Map<string, AttributedCriterion[]>;
-  observations: Observation[];
-  conflicts: Conflict[];
-  runs: ReviewerRun[];
-  /** True when at least one reviewer failed — the result is usable but partial. */
-  partial: boolean;
-  /** Criterion ids no reviewer managed to rate, so the UI can say so plainly. */
-  unrated: string[];
-}
 
 /** Raised when an agent tries to spend past its allowance. */
 export class BudgetExceededError extends Error {

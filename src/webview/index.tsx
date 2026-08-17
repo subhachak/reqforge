@@ -4,7 +4,7 @@ import type { EpicItem, StoryItem, SyncStatus } from '../core/model';
 import { syncStatus } from '../core/model';
 import type { AcceptanceCriterion } from '../core/schemas';
 import type { CriterionDef, ItemQuality } from '../core/rubric/index';
-import type { Conflict, Observation } from '../core/agents/types';
+import type { Conflict, Observation } from '../core/findings';
 import type { HostMessage, PanelState, SettingsPatch, WebviewMessage } from '../shared/protocol';
 import './styles.css';
 

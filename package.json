@@ -1,7 +1,7 @@
 {
-  "name": "reqforge",
-  "displayName": "ReqForge",
-  "description": "Decompose Confluence PRDs into Jira epics and stories, and refine existing ones.",
+  "name": "reqforge-studio",
+  "displayName": "ReqForge Studio",
+  "description": "Multi-agent requirement decomposition for Confluence and Jira, with MCP and Teamwork Graph.",
   "version": "0.1.0",
   "publisher": "reqforge",
   "license": "MIT",
@@ -147,13 +147,17 @@
     "build:full": "node esbuild.mjs --profile=full",
     "watch": "node esbuild.mjs --profile=restricted --watch",
     "package": "npm run check && REQFORGE_PROFILE=restricted npx --yes @vscode/vsce package --out reqforge-restricted.vsix && node scripts/verifyVsix.mjs reqforge-restricted.vsix restricted",
-    "package:full": "npm run check && REQFORGE_PROFILE=full npx --yes @vscode/vsce package --out reqforge-full.vsix && node scripts/verifyVsix.mjs reqforge-full.vsix full",
+    "package:full": "npm run check:full && REQFORGE_PROFILE=full npx --yes @vscode/vsce package --out reqforge-studio.vsix && node scripts/verifyVsix.mjs reqforge-studio.vsix full",
     "vscode:prepublish": "node esbuild.mjs --minify",
     "harness": "node scripts/harness.mjs",
     "hooks": "git config core.hooksPath .githooks && echo \"pre-push hook enabled\"",
     "prepare": "git config core.hooksPath .githooks || true",
     "contract": "node scripts/contract.mjs",
-    "verify:vsix": "node scripts/verifyVsix.mjs"
+    "verify:vsix": "node scripts/verifyVsix.mjs",
+    "smoke:full": "node scripts/smoke.full.mjs",
+    "contract:full": "node scripts/contract.full.mjs",
+    "check:full": "npm run check && npm run smoke:full && npm run contract:full && npm run build:full",
+    "export:restricted": "node scripts/exportRestricted.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",

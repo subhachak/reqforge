@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import type { Backlog, EpicItem } from '../model';
 import type { AtlassianPort, LlmCancellation, LlmPort, SearchHit } from '../ports';
-import type { Level } from '../rubric/types';
+import type { DuplicateCandidate, DuplicateReport, Relationship } from '../findings';
 import type { Progress } from './decompose';
 import { zodParser } from './parse';
+
+export type { DuplicateCandidate, DuplicateReport, Relationship } from '../findings';
 
 /**
  * Finds work that already exists before creating more of it.
@@ -37,29 +39,8 @@ const VerdictSchema = z.object({
     .default([])
 });
 
-export type Relationship = 'duplicate' | 'overlaps' | 'related';
 
-export interface DuplicateCandidate {
-  level: Level;
-  /** The backlog item that may already exist. */
-  ref: string;
-  title: string;
-  /** What was found in the tenant. */
-  hit: SearchHit;
-  relationship: Relationship;
-  /** Why the model judged it so — shown to the PO, never acted on automatically. */
-  reason: string;
-}
 
-export interface DuplicateReport {
-  /** False when the transport cannot reach the graph. Not the same as "nothing found". */
-  available: boolean;
-  /** Set when unavailable, explaining what the PO would need to change. */
-  unavailableReason?: string;
-  candidates: DuplicateCandidate[];
-  /** Items actually checked, so the UI can distinguish "clean" from "not looked at". */
-  checked: string[];
-}
 
 export interface DuplicateOptions {
   /** Check only these epic refs. Omit for every unpushed epic. */

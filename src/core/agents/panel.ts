@@ -9,14 +9,8 @@ import { cacheKey } from '../rubric/score';
 import { MAX_RATING, type Level, type Severity } from '../rubric/types';
 import { Orchestrator } from './orchestrator';
 import { ownedAt, REVIEWERS } from './reviewers';
-import type {
-  AttributedCriterion,
-  Conflict,
-  Observation,
-  PanelResult,
-  ReviewerDef,
-  ReviewerRun
-} from './types';
+import type { AttributedCriterion, Conflict, Observation, PanelResult, ReviewerRun } from '../findings';
+import type { ReviewerDef } from './types';
 
 /**
  * Runs the reviewer panel over a backlog.

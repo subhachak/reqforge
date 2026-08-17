@@ -1,6 +1,10 @@
-import type { findDuplicates } from './core/pipeline/duplicates';
-import type { runPanel } from './core/agents/panel';
-import type { ReviewerDef } from './core/agents/types';
+import type { Backlog } from './core/model';
+import type {
+  DuplicateReport,
+  DuplicateRunOptions,
+  PanelResult,
+  PanelRunOptions
+} from './core/findings';
 import type { AtlassianPort, LlmPort } from './core/ports';
 
 export type Transport = 'rest' | 'mcp';
@@ -27,10 +31,10 @@ export interface AdapterContext {
 }
 
 /**
- * The seam between the two builds. `@registry` is aliased by esbuild to either
- * registry.restricted.ts or registry.full.ts, so the adapters a profile does
- * not use are never pulled into the dependency graph at all — they are absent
- * from the bundle, not merely unreachable.
+ * The seam between builds. `@registry` is aliased by esbuild to the registry
+ * file for the profile being built, so the adapters a profile does not use are
+ * never pulled into the dependency graph at all — they are absent from the
+ * bundle, not merely unreachable.
  */
 export interface AdapterRegistry {
   profile: 'restricted' | 'full';
@@ -48,8 +52,14 @@ export interface AdapterRegistry {
    * claims, and only the first one can be checked from the outside.
    */
   agents?: {
-    reviewers: ReviewerDef[];
-    runPanel: typeof runPanel;
-    findDuplicates: typeof findDuplicates;
+    /** Enough to name a reviewer in the UI; the full definition stays private. */
+    reviewers: { id: string; name: string; purpose: string }[];
+    runPanel(llm: LlmPort, backlog: Backlog, opts?: PanelRunOptions): Promise<PanelResult>;
+    findDuplicates(
+      atlassian: AtlassianPort,
+      llm: LlmPort,
+      backlog: Backlog,
+      opts?: DuplicateRunOptions
+    ): Promise<DuplicateReport>;
   };
 }

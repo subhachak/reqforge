@@ -1,6 +1,6 @@
-import type { Conflict, Observation, ReviewerRun } from '../core/agents/types';
+import type { Conflict, Observation, ReviewerRun } from '../core/findings';
 import type { Backlog, EpicItem } from '../core/model';
-import type { DuplicateCandidate } from '../core/pipeline/duplicates';
+import type { DuplicateCandidate } from '../core/findings';
 import type { PushPlan, PushResult } from '../core/pipeline/push';
 import type { BacklogQuality, CriterionDef } from '../core/rubric/index';
 import type { ImproveResult } from '../core/pipeline/improve';

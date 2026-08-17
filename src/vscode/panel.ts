@@ -14,10 +14,13 @@ import {
   liveValues,
   loadPanelFindings,
   pruneByKey,
-  savePanelFindings
-} from '../core/agents/store';
-import type { Conflict, Observation, ReviewerRun } from '../core/agents/types';
-import type { DuplicateReport } from '../core/pipeline/duplicates';
+  savePanelFindings,
+  type Conflict,
+  type DuplicateReport,
+  type Observation,
+  type ReviewerRun
+} from '../core/findings';
+
 import {
   ALL_CRITERIA,
   DEFAULT_RUBRIC,

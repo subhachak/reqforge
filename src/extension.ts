@@ -26,6 +26,21 @@ export function activate(context: vscode.ExtensionContext): void {
   out.appendLine(`  transports: ${registry.availableTransports.join(', ')}`);
   out.appendLine(`  providers:  ${registry.availableLlmProviders.join(', ')}`);
 
+  // Both builds contribute the same command and view ids, so VS Code will load
+  // them side by side but the second to activate loses the registration race
+  // and fails with a message that explains nothing. Say what is actually wrong.
+  const sibling = registry.profile === 'full' ? 'reqforge.reqforge' : 'reqforge.reqforge-studio';
+  if (vscode.extensions.getExtension(sibling)) {
+    void vscode.window
+      .showWarningMessage(
+        'Two ReqForge builds are installed. They share command ids, so only one can work at a time — disable either ReqForge or ReqForge Studio and reload.',
+        'Show Extensions'
+      )
+      .then((choice) => {
+        if (choice) void vscode.commands.executeCommand('workbench.view.extensions');
+      });
+  }
+
   // Drives `when` clauses in package.json. The restricted build must not even
   // offer to store a third-party API key: the command would do nothing, but a
   // client auditing the palette would reasonably read it as capability.
