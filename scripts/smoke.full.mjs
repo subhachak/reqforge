@@ -25,6 +25,8 @@ export { Orchestrator } from '${path.resolve('src/core/agents/orchestrator.ts')}
 export { BudgetExceededError } from '${path.resolve('src/core/agents/types.ts')}';
 export { REVIEWERS, ownedAt, reviewerById } from '${path.resolve('src/core/agents/reviewers.ts')}';
 export { runPanel } from '${path.resolve('src/core/agents/panel.ts')}';
+export { improveBacklog } from '${path.resolve('src/core/pipeline/improve.ts')}';
+export { DEFAULT_RUBRIC } from '${path.resolve('src/core/rubric/types.ts')}';
 export { findDuplicates } from '${path.resolve('src/core/pipeline/duplicates.ts')}';
 export { loadPanelFindings, savePanelFindings, deletePanelFindings, pruneByKey, liveValues, panelPath } from '${path.resolve('src/core/findings.ts')}';
 `
@@ -219,7 +221,9 @@ const memFs = () => {
         inScope: [],
         outOfScope: [],
         successMeasures: [],
-        acceptanceCriteria: ['Given a valid card, when paying, then the order completes'],
+        acceptanceCriteria: [
+          { given: 'a valid card', when: 'the shopper pays', then: 'the order completes' }
+        ],
         nonFunctional: [],
         assumptions: [],
         links: [],
@@ -234,10 +238,12 @@ const memFs = () => {
             ref: 'enter-card',
             epicRef: 'card-payments',
             title: 'Enter card details',
-            narrative: { role: 'shopper', want: 'to enter my card', soThat: 'I can pay' },
+            narrative: { asA: 'shopper', iWant: 'to enter my card', soThat: 'I can pay' },
             description: 'd',
             priority: 'must',
-            acceptanceCriteria: ['Given a card form, when I submit, then payment is taken'],
+            acceptanceCriteria: [
+              { given: 'a card form', when: 'the shopper submits', then: 'payment is taken' }
+            ],
             outOfScope: [],
             technicalNotes: '',
             assumptions: [],
@@ -462,6 +468,50 @@ const memFs = () => {
     });
     const result = await m.runPanel(llm, panelBacklog, {});
     check('no suggestions means no reconciliation call', result.conflicts.length === 0);
+  }
+
+  /* -- the improve loop re-grades with whatever assessor it is given ------- */
+
+  {
+    // Without an injected assessor the loop falls back to the single pass, and
+    // a fix would be graded by a different mechanism than the review that
+    // demanded it — silently dropping attribution on everything it touched.
+    let panelCalls = 0;
+    const llm = fakeLlm(async (req) => {
+      if (req.toolName === 'emit_conflicts') return { conflicts: [] };
+      const refs = [...req.messages[0].content.matchAll(/<item ref="([^"]+)"/g)].map((x) => x[1]);
+      const ids = req.inputSchema?.properties?.reviews?.items?.properties?.criteria?.items?.properties?.id?.enum;
+      if (!ids) return { epics: [], stories: [] };
+      return {
+        reviews: refs.map((ref) => ({
+          ref,
+          criteria: ids.map((id) => ({ id, rating: 3, justification: 'j', suggestion: '' })),
+          observations: []
+        }))
+      };
+    });
+
+    const result = await m.improveBacklog(llm, panelBacklog, m.DEFAULT_RUBRIC, new Map(), {
+      maxIterations: 1,
+      assess: async (leased, backlog, _config, opts) => {
+        panelCalls++;
+        const panel = await m.runPanel(leased, backlog, {
+          only: opts.only,
+          cached: opts.cached,
+          detectConflicts: false
+        });
+        const merged = new Map(opts.cached ?? []);
+        for (const [key, criteria] of panel.criteria) merged.set(key, criteria);
+        return merged;
+      }
+    });
+
+    check('the injected assessor is what runs', panelCalls > 0, String(panelCalls));
+    check(
+      'ratings from the loop keep their reviewer',
+      [...result.assessments.values()].flat().every((c) => typeof c.reviewerId === 'string'),
+      JSON.stringify([...result.assessments.values()].flat().slice(0, 2))
+    );
   }
 
   /* -- the panel must not be able to reach Jira ---------------------------- */

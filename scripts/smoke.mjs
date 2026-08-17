@@ -35,6 +35,8 @@ export { DEFAULT_RUBRIC } from '${path.resolve('src/core/rubric/types.ts')}';
 export { RULE_IDS } from '${path.resolve('src/core/rubric/rules.ts')}';
 export { qualityLabels, qualityNote, staleQualityLabels, qualityLabelVocabulary } from '${path.resolve('src/core/rubric/labels.ts')}';
 export { parseEpicMarkdown, parseStoryMarkdown } from '${path.resolve('src/core/pipeline/parseIssue.ts')}';
+export { zodParser } from '${path.resolve('src/core/pipeline/parse.ts')}';
+export { z } from 'zod';
 export { backlogFromJiraIssue, markAsSynced } from '${path.resolve('src/core/pipeline/fromJira.ts')}';
 export { ALL_CRITERIA } from '${path.resolve('src/core/rubric/criteria.ts')}';
 export { planPush } from '${path.resolve('src/core/pipeline/push.ts')}';
@@ -53,6 +55,9 @@ await esbuild.build({
   outfile: out,
   platform: 'node',
   format: 'cjs',
+  // The entry lives in a temp dir, so bare package specifiers have to be
+  // pointed back at this repo's node_modules.
+  nodePaths: [path.resolve('node_modules')],
   logLevel: 'error'
 });
 
@@ -1131,6 +1136,54 @@ const memFs = () => {
     .filter((f) => /\.tsx?$/.test(f))
     .filter((f) => readFileSync(f, 'utf8').includes('showOpenDialog'));
   check('the folder picker is defined in one place', pickers.length === 1, pickers.join(', '));
+}
+
+/* ------------------------------- tool input that arrives badly encoded */
+
+{
+  const { z } = m;
+  const schema = z.object({
+    assessments: z
+      .array(z.object({ ref: z.string(), criteria: z.array(z.object({ id: z.string(), rating: z.number() })) }))
+      .min(1)
+  });
+  const parse = m.zodParser(schema);
+  const good = { assessments: [{ ref: 'e1', criteria: [{ id: 'c', rating: 3 }] }] };
+
+  check('well-formed input parses', parse(good).ok === true);
+
+  // The whole input as a JSON string — already handled, kept as a regression.
+  check('a stringified payload parses', parse(JSON.stringify(good)).ok === true);
+
+  // The failure seen against a real tenant: the array field alone arrives as a
+  // JSON string. The data is right; only the encoding is wrong.
+  const fieldAsString = { assessments: JSON.stringify(good.assessments) };
+  const repaired = parse(fieldAsString);
+  check('an array field sent as a JSON string is repaired', repaired.ok === true, repaired.error);
+  check(
+    'the repaired value is the real data, not the string',
+    repaired.ok && Array.isArray(repaired.value.assessments) && repaired.value.assessments[0].ref === 'e1'
+  );
+
+  // Nested one level deeper.
+  const nested = { assessments: [{ ref: 'e1', criteria: JSON.stringify([{ id: 'c', rating: 2 }]) }] };
+  const nestedResult = parse(nested);
+  check('a nested array sent as a JSON string is repaired', nestedResult.ok === true, nestedResult.error);
+
+  // A string that is not JSON must still fail, with the original message.
+  const junk = parse({ assessments: 'not json at all' });
+  check('a non-JSON string still fails', junk.ok === false);
+  check('the failure still names the field', /assessments/.test(junk.error), junk.error);
+
+  // Repair must not touch legitimate string fields that happen to hold JSON.
+  const proseSchema = z.object({ note: z.string() });
+  const proseParse = m.zodParser(proseSchema);
+  const prose = proseParse({ note: '[{"looks":"like json"}]' });
+  check('a legitimate string field is left alone', prose.ok === true && typeof prose.value.note === 'string');
+
+  // A genuinely wrong shape is not rescued into a false pass.
+  const wrong = parse({ assessments: JSON.stringify([{ ref: 'e1' }]) });
+  check('repair does not paper over a genuinely wrong shape', wrong.ok === false, wrong.error);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

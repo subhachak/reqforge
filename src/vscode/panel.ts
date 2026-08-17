@@ -547,6 +547,25 @@ export class BacklogPanel {
       const { llm } = await this.ports();
       const result = await improveBacklog(llm, this.backlog!, this.rubric, this.assessments, {
         only,
+        // On the full profile the loop re-grades with the same panel that
+        // produced the findings, so a fix is judged by the reviewer that asked
+        // for it and attribution survives the rewrite.
+        assess: registry.agents
+          ? async (leased, backlog, _config, assessOpts) => {
+              const panel = await registry.agents!.runPanel(leased, backlog, {
+                only: assessOpts.only,
+                cached: assessOpts.cached as Map<string, never>,
+                // The loop has its own request budget; a reconciliation pass
+                // inside it would spend that budget arguing rather than fixing.
+                detectConflicts: false,
+                progress: assessOpts.progress,
+                token: assessOpts.token
+              });
+              const merged = new Map(assessOpts.cached ?? []);
+              for (const [key, criteria] of panel.criteria) merged.set(key, criteria);
+              return merged;
+            }
+          : undefined,
         progress: {
           report: (message) => {
             this.busyLabel = message;

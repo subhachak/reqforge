@@ -37,7 +37,29 @@ export interface ImproveOptions {
   maxRequests?: number;
   progress?: Progress;
   token?: LlmCancellation;
+  /**
+   * How to re-assess after each pass. Defaults to the single rubric pass.
+   *
+   * Injected rather than imported so this module stays profile-neutral: the
+   * full profile hands in the reviewer panel, and without it a fix would be
+   * graded by a different mechanism than the review that demanded it — and
+   * would quietly drop the reviewer attribution on everything it touched.
+   */
+  assess?: Assessor;
 }
+
+/** Matches assessBacklog's shape, so the default needs no adapter. */
+export type Assessor = (
+  llm: LlmPort,
+  backlog: Backlog,
+  config: RubricConfig,
+  opts: {
+    only?: { epics?: string[]; stories?: string[] };
+    cached?: Map<string, CriterionResult[]>;
+    progress?: Progress;
+    token?: LlmCancellation;
+  }
+) => Promise<Map<string, CriterionResult[]>>;
 
 export interface ImproveStep {
   iteration: number;
@@ -111,12 +133,13 @@ export async function improveBacklog(
   });
 
   let current = assessments;
+  const assess = opts.assess ?? assessBacklog;
   const steps: ImproveStep[] = [];
 
   // Baseline. Everything in scope must have a current assessment before the
   // loop can tell what failed.
   opts.progress?.report('Assessing the backlog…');
-  current = await assessBacklog(budgeted, backlog, config, {
+  current = await assess(budgeted, backlog, config, {
     only: scopeRefs(),
     cached: current,
     progress: opts.progress,
@@ -201,7 +224,7 @@ export async function improveBacklog(
     // Rewriting changed the fingerprints, so those assessments are stale by
     // construction and the next pass re-scores exactly what moved.
     opts.progress?.report(`Pass ${iteration}: re-checking what changed…`);
-    current = await assessBacklog(budgeted, backlog, config, {
+    current = await assess(budgeted, backlog, config, {
       only: scopeRefs(),
       cached: current,
       progress: opts.progress,
