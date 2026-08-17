@@ -39,6 +39,7 @@ export { BudgetExceededError } from '${path.resolve('src/core/agents/types.ts')}
 export { REVIEWERS, ownedAt, reviewerById } from '${path.resolve('src/core/agents/reviewers.ts')}';
 export { runPanel } from '${path.resolve('src/core/agents/panel.ts')}';
 export { findDuplicates } from '${path.resolve('src/core/pipeline/duplicates.ts')}';
+export { loadPanelFindings, savePanelFindings, deletePanelFindings, pruneByKey, liveValues, panelPath } from '${path.resolve('src/core/agents/store.ts')}';
 `
 );
 
@@ -1622,6 +1623,47 @@ const memFs = () => {
     );
     check('one failed lookup does not lose the others', report.candidates.length === 1, JSON.stringify(report.candidates));
     check('both items are still reported as checked', report.checked.length === 2);
+  }
+
+  /* -- panel findings persist and go stale with their item ---------------- */
+
+  {
+    const fs = memFs();
+    const obs = { reviewerId: 'test', level: 'epic', ref: 'a', severity: 'warn', message: 'no empty state' };
+    const con = { level: 'epic', ref: 'a', between: ['delivery', 'product'], positions: ['x', 'y'], tradeoff: 'z' };
+
+    await m.savePanelFindings(fs, 'folder', 'slug', {
+      observations: new Map([['epic:a:hash1', [obs]]]),
+      conflicts: new Map([['epic:a:hash1', [con]]])
+    });
+
+    const loaded = await m.loadPanelFindings(fs, 'folder', 'slug');
+    check('panel findings round trip', loaded.observations.get('epic:a:hash1')[0].message === 'no empty state');
+    check('conflicts round trip', loaded.conflicts.get('epic:a:hash1')[0].tradeoff === 'z');
+    check('panel findings live beside the backlog', m.panelPath('folder', 'slug') === 'folder/slug.panel.json');
+
+    // The staleness guarantee: an edited item's fingerprint changes, so its
+    // findings stop matching and vanish along with its ratings.
+    const live = new Set(['epic:a:hash2']);
+    check('editing an item drops its observations', m.pruneByKey(loaded.observations, live).size === 0);
+    check('editing an item drops its conflicts', m.pruneByKey(loaded.conflicts, live).size === 0);
+    check(
+      'findings survive while the fingerprint holds',
+      m.pruneByKey(loaded.observations, new Set(['epic:a:hash1'])).size === 1
+    );
+    check(
+      'only live findings are sent to the webview',
+      m.liveValues(loaded.observations, live).length === 0 &&
+        m.liveValues(loaded.observations, new Set(['epic:a:hash1'])).length === 1
+    );
+
+    await m.deletePanelFindings(fs, 'folder', 'slug');
+    const gone = await m.loadPanelFindings(fs, 'folder', 'slug');
+    check('deleting removes the findings file', gone.observations.size === 0 && gone.conflicts.size === 0);
+
+    await fs.write(m.panelPath('folder', 'slug'), '{ not json');
+    const corrupt = await m.loadPanelFindings(fs, 'folder', 'slug');
+    check('a corrupt findings file does not stop the backlog opening', corrupt.observations.size === 0);
   }
 
   // ...and prove the guard actually bites, rather than passing because the

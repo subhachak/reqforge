@@ -1,3 +1,6 @@
+import { runPanel } from './core/agents/panel';
+import { REVIEWERS } from './core/agents/reviewers';
+import { findDuplicates } from './core/pipeline/duplicates';
 import { AtlassianMcpAdapter } from './adapters/atlassian/mcp';
 import { AtlassianRestAdapter } from './adapters/atlassian/rest';
 import { CopilotLlmAdapter } from './adapters/llm/copilot';
@@ -25,6 +28,9 @@ export const registry: AdapterRegistry = {
 
   availableTransports: ['rest', 'mcp'],
   availableLlmProviders: ['copilot', 'anthropic', 'fixture'],
+
+  // Only reachable from here, so the restricted bundle does not contain it.
+  agents: { reviewers: REVIEWERS, runPanel, findDuplicates },
 
   createAtlassian(ctx: AdapterContext): AtlassianPort {
     if (ctx.transport === 'mcp') {

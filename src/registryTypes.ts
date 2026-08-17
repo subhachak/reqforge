@@ -1,3 +1,6 @@
+import type { findDuplicates } from './core/pipeline/duplicates';
+import type { runPanel } from './core/agents/panel';
+import type { ReviewerDef } from './core/agents/types';
 import type { AtlassianPort, LlmPort } from './core/ports';
 
 export type Transport = 'rest' | 'mcp';
@@ -35,4 +38,18 @@ export interface AdapterRegistry {
   availableLlmProviders: LlmProvider[];
   createAtlassian(ctx: AdapterContext): AtlassianPort;
   createLlm(ctx: AdapterContext): LlmPort;
+  /**
+   * The multi-agent surface, present only in the full profile.
+   *
+   * Reached through the registry rather than imported directly and guarded by
+   * `registry.profile === 'full'`, because a runtime branch leaves the code in
+   * the bundle. The same reasoning that keeps the MCP client out of the
+   * restricted build applies here: "absent" and "unreachable" are different
+   * claims, and only the first one can be checked from the outside.
+   */
+  agents?: {
+    reviewers: ReviewerDef[];
+    runPanel: typeof runPanel;
+    findDuplicates: typeof findDuplicates;
+  };
 }

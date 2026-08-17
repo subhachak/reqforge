@@ -4,6 +4,7 @@ import type { EpicItem, StoryItem, SyncStatus } from '../core/model';
 import { syncStatus } from '../core/model';
 import type { AcceptanceCriterion } from '../core/schemas';
 import type { CriterionDef, ItemQuality } from '../core/rubric/index';
+import type { Conflict, Observation } from '../core/agents/types';
 import type { HostMessage, PanelState, WebviewMessage } from '../shared/protocol';
 import './styles.css';
 
@@ -47,6 +48,12 @@ const EMPTY: PanelState = {
   redoLabel: undefined,
   quality: undefined,
   criteria: [],
+  reviewers: [],
+  observations: [],
+  conflicts: [],
+  lastPanelRun: undefined,
+  canCheckExisting: false,
+  duplicates: undefined,
   improveReport: undefined,
   rubric: { threshold: 70, enforcement: 'label', requireReview: false, source: 'default' }
 };
@@ -327,9 +334,47 @@ function ScorePill({ quality }: { quality: ItemQuality | undefined }) {
 }
 
 /** Full breakdown: every criterion, its rating, why, and what would fix it. */
+/**
+ * Two reviewers pulling the same item in opposite directions.
+ *
+ * Shown as a decision rather than a defect: there is no "fix" button, because
+ * neither side is wrong and picking one is the PO's call. That is the entire
+ * reason the panel surfaces conflicts instead of quietly resolving them.
+ */
+function ConflictCard({
+  conflict,
+  nameOf
+}: {
+  conflict: Conflict;
+  nameOf: (id: string) => string;
+}) {
+  return (
+    <div className="conflict">
+      <div className="conflict-head">
+        <span className="badge skip">needs your call</span>
+        <strong>
+          {nameOf(conflict.between[0])} and {nameOf(conflict.between[1])} disagree
+        </strong>
+      </div>
+      <div className="conflict-sides">
+        {[0, 1].map((i) => (
+          <div className="conflict-side" key={i}>
+            <div className="conflict-who">{nameOf(conflict.between[i])}</div>
+            <div>{conflict.positions[i]}</div>
+          </div>
+        ))}
+      </div>
+      <div className="conflict-tradeoff">{conflict.tradeoff}</div>
+    </div>
+  );
+}
+
 function QualityPanel({
   quality,
   criteria,
+  reviewers,
+  observations,
+  conflicts,
   busy,
   onFix,
   onReview,
@@ -341,6 +386,9 @@ function QualityPanel({
 }: {
   quality: ItemQuality | undefined;
   criteria: CriterionDef[];
+  reviewers: PanelState['reviewers'];
+  observations: Observation[];
+  conflicts: Conflict[];
   busy: boolean;
   onFix: () => void;
   onReview: () => void;
@@ -352,6 +400,15 @@ function QualityPanel({
 }) {
   if (!quality) return null;
   const hasFindings = quality.blockedBy.length > 0 || quality.warnings.length > 0;
+  // Falls back to the id so a finding from a reviewer this build no longer has
+  // still reads as something rather than disappearing.
+  const nameOf = (id: string) => reviewers.find((r) => r.id === id)?.name ?? id;
+
+  // Filtering here rather than at each call site: `quality` already identifies
+  // the item, so callers cannot get the two out of step.
+  const mine = (f: { level: string; ref: string }) => f.level === quality.level && f.ref === quality.ref;
+  const myObservations = observations.filter(mine);
+  const myConflicts = conflicts.filter(mine);
 
   return (
     <>
@@ -395,6 +452,12 @@ function QualityPanel({
         </div>
       )}
 
+      {/* A conflict is the one thing here nobody else can decide, so it sits
+          above the findings rather than below them. */}
+      {myConflicts.map((c, i) => (
+        <ConflictCard conflict={c} nameOf={nameOf} key={`conflict-${i}`} />
+      ))}
+
       {[...quality.blockedBy, ...quality.warnings].map((f) => (
         <div className={`finding ${f.severity}`} key={f.ruleId}>
           <span className={`badge ${f.severity === 'blocker' ? 'create' : 'skip'}`} style={f.severity === 'blocker' ? { background: 'var(--red)' } : undefined}>
@@ -414,6 +477,22 @@ function QualityPanel({
           <button className="ghost" title="This check does not apply here" onClick={() => onWaive(f.ruleId)}>
             dismiss
           </button>
+        </div>
+      ))}
+
+      {/* Things a reviewer noticed that the rubric has no number for. Attributed,
+          because "the Test reviewer says there is no empty-state criterion"
+          carries weight that an anonymous warning does not. */}
+      {myObservations.map((o, i) => (
+        <div className={`finding ${o.severity} observation`} key={`obs-${i}`}>
+          <span className="badge skip">{nameOf(o.reviewerId)}</span>
+          {o.field ? (
+            <button className="link-finding" onClick={() => onLocate(o.field!)} title="Go to this field">
+              {o.message}
+            </button>
+          ) : (
+            <span style={{ flex: 1 }}>{o.message}</span>
+          )}
         </div>
       ))}
 
@@ -450,6 +529,14 @@ function QualityPanel({
                   <div>
                     <strong>{def?.name ?? c.id}</strong>{' '}
                     <span style={{ color: 'var(--muted)', fontSize: 11 }}>{def?.standard}</span>
+                    {/* Only present when a panel produced the rating. The
+                        restricted build has one reviewer and nothing to
+                        attribute, so the same markup renders correctly there. */}
+                    {'reviewerId' in c && (c as { reviewerId?: string }).reviewerId && (
+                      <span className="attribution" title="The reviewer that rated this criterion">
+                        {nameOf((c as { reviewerId: string }).reviewerId)}
+                      </span>
+                    )}
                   </div>
                   <div style={{ color: 'var(--muted)' }}>{c.justification}</div>
                   {c.suggestion && c.rating < 3 && (
@@ -583,6 +670,9 @@ function StoryCard(props: {
   busy: boolean;
   quality: ItemQuality | undefined;
   criteria: CriterionDef[];
+  reviewers: PanelState['reviewers'];
+  observations: Observation[];
+  conflicts: Conflict[];
   onChange: (s: StoryItem) => void;
   onDelete: () => void;
   onRefine: (instruction: string) => void;
@@ -737,6 +827,9 @@ function StoryCard(props: {
           <QualityPanel
             quality={props.quality}
             criteria={props.criteria}
+            reviewers={props.reviewers}
+            observations={props.observations}
+            conflicts={props.conflicts}
             busy={props.busy}
             onFix={props.onFix}
             onReview={props.onReview}
@@ -788,6 +881,9 @@ function EpicDetail(props: {
   quality: ItemQuality | undefined;
   qualityFor: (level: 'epic' | 'story', ref: string) => ItemQuality | undefined;
   criteria: CriterionDef[];
+  reviewers: PanelState['reviewers'];
+  observations: Observation[];
+  conflicts: Conflict[];
   sourceKind: 'confluence' | 'jira';
   onFix: (level: 'epic' | 'story', ref: string) => void;
   onReview: () => void;
@@ -947,6 +1043,9 @@ function EpicDetail(props: {
       <QualityPanel
         quality={props.quality}
         criteria={props.criteria}
+        reviewers={props.reviewers}
+        observations={props.observations}
+        conflicts={props.conflicts}
         busy={props.busy}
         onFix={() => props.onFix('epic', e.ref)}
         onReview={props.onReview}
@@ -1014,6 +1113,9 @@ function EpicDetail(props: {
           key={s.ref}
           story={s}
           jiraBase={props.jiraBase}
+          reviewers={props.reviewers}
+          observations={props.observations}
+          conflicts={props.conflicts}
           busy={props.busy}
           quality={props.qualityFor('story', s.ref)}
           criteria={props.criteria}
@@ -1575,6 +1677,79 @@ function PlanModal({ state, only }: { state: PanelState; only: string[] }) {
   );
 }
 
+/**
+ * Work that may already exist in Jira.
+ *
+ * Presented as reading material before a send, never as a filter over it.
+ * Nothing here removes anything from a push — a PO decides whether a match
+ * means "do not create this", because an issue that silently failed to appear
+ * is far harder to notice than a duplicate.
+ */
+function DuplicatesModal({ state }: { state: PanelState }) {
+  const report = state.duplicates!;
+  const byEpic = new Map<string, typeof report.candidates>();
+  for (const candidate of report.candidates) {
+    byEpic.set(candidate.ref, [...(byEpic.get(candidate.ref) ?? []), candidate]);
+  }
+
+  return (
+    <div className="overlay">
+      <div className="modal">
+        <header>
+          <h2>Existing work in Jira</h2>
+        </header>
+        <div className="content">
+          {!report.available ? (
+            <p style={{ color: 'var(--muted)' }}>{report.unavailableReason}</p>
+          ) : report.candidates.length === 0 ? (
+            <p style={{ color: 'var(--muted)' }}>
+              Nothing in Jira looks like it already covers this work.
+            </p>
+          ) : (
+            <>
+              <p style={{ color: 'var(--muted)' }}>
+                Nothing has been skipped. Review these, then send as normal.
+              </p>
+              {[...byEpic].map(([ref, candidates]) => (
+                <div key={ref} style={{ marginTop: 16 }}>
+                  <strong>{candidates[0].title}</strong>
+                  {candidates.map((c, i) => (
+                    <div className="dupe" key={`${c.hit.id}-${i}`}>
+                      <span className={`badge ${c.relationship}`}>{c.relationship}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div>
+                          {c.hit.url ? (
+                            <button
+                              className="link-finding"
+                              onClick={() => post({ type: 'openExternal', url: c.hit.url! })}
+                            >
+                              {c.hit.id} — {c.hit.title}
+                            </button>
+                          ) : (
+                            <span>
+                              {c.hit.id} — {c.hit.title}
+                            </span>
+                          )}
+                        </div>
+                        <div className="dupe-reason">{c.reason}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+        <footer>
+          <button className="primary" onClick={() => post({ type: 'dismissDuplicates' })}>
+            Close
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------------- app */
 
 function App() {
@@ -2044,6 +2219,15 @@ function App() {
               <button disabled={state.busy} onClick={() => act({ type: 'generateStories', epicRefs: [...chosen] })}>
                 Generate stories
               </button>
+              {state.canCheckExisting && (
+                <button
+                  disabled={state.busy}
+                  title="Look for issues in Jira that may already cover this work"
+                  onClick={() => act({ type: 'checkExisting', only: [...chosen] })}
+                >
+                  Check existing
+                </button>
+              )}
               <button className="primary" disabled={state.busy} onClick={() => act({ type: 'previewPush', only: [...chosen] })}>
                 Send to Jira
               </button>
@@ -2092,6 +2276,9 @@ function App() {
               quality={qualityFor('epic', current.ref)}
               qualityFor={qualityFor}
               criteria={state.criteria}
+              reviewers={state.reviewers}
+              observations={state.observations}
+              conflicts={state.conflicts}
               sourceKind={b.source.kind}
               onFix={(level, ref) => act({ type: 'fixItem', level, ref })}
               onReview={() => act({ type: 'deepReview', only: [current.ref] })}
@@ -2116,6 +2303,7 @@ function App() {
       {state.pendingRefine && <RefineModal state={state} />}
       {state.plan && <PlanModal state={state} only={onlyRefs} />}
       {state.improveReport && <ImproveModal state={state} />}
+      {state.duplicates && <DuplicatesModal state={state} />}
       {overlay}
     </div>
   );

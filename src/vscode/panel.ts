@@ -10,6 +10,15 @@ import { BacklogStore } from '../core/store';
 import { backlogFromJiraIssue, markAsSynced } from '../core/pipeline/fromJira';
 import { describeStop, improveBacklog, type ImproveResult } from '../core/pipeline/improve';
 import {
+  deletePanelFindings,
+  liveValues,
+  loadPanelFindings,
+  pruneByKey,
+  savePanelFindings
+} from '../core/agents/store';
+import type { Conflict, Observation, ReviewerRun } from '../core/agents/types';
+import type { DuplicateReport } from '../core/pipeline/duplicates';
+import {
   ALL_CRITERIA,
   DEFAULT_RUBRIC,
   RULE_IDS,
@@ -120,6 +129,12 @@ export class BacklogPanel {
   private assessments = new Map<string, CriterionResult[]>();
   /** Reviewer decisions, keyed by level:ref so they survive editing. */
   private overrides = new Map<string, Override>();
+  /** Panel findings the rubric has no number for. Keyed like assessments. */
+  private observations = new Map<string, Observation[]>();
+  private conflicts = new Map<string, Conflict[]>();
+  /** Who ran and who failed, for the run just completed. */
+  private lastPanelRun: ReviewerRun[] | undefined;
+  private duplicates: DuplicateReport | undefined;
 
   /** Connection test results, only refreshed on an explicit test. */
   private probes = {
@@ -229,6 +244,11 @@ export class BacklogPanel {
     const setup = await this.setupState();
     // Setup is a hard gate: nothing else is reachable until it is complete.
     const view: View = setup.complete ? this.view : 'setup';
+    // Findings are filtered to items at their current fingerprint on the way
+    // out, so an edited item loses its observations at the same moment it
+    // loses its ratings. Stale advice about wording that has since changed is
+    // worse than none.
+    const live = this.liveKeys();
 
     const state: PanelState = {
       view,
@@ -258,6 +278,21 @@ export class BacklogPanel {
         ? { ...this.improveReport, stopExplanation: describeStop(this.improveReport.stoppedBecause, this.rubric) }
         : undefined,
       criteria: ALL_CRITERIA,
+      // Empty on the restricted profile: one pass covers the whole rubric
+      // there, so there is nobody to attribute a rating to.
+      reviewers: (registry.agents?.reviewers ?? []).map(({ id, name, purpose }) => ({ id, name, purpose })),
+      observations: liveValues(this.observations, live),
+      conflicts: liveValues(this.conflicts, live),
+      lastPanelRun: this.lastPanelRun,
+      canCheckExisting:
+        registry.agents !== undefined && cfg().get<string>('atlassian.transport', 'rest') === 'mcp',
+      duplicates: this.duplicates
+        ? {
+            available: this.duplicates.available,
+            unavailableReason: this.duplicates.unavailableReason,
+            candidates: this.duplicates.candidates
+          }
+        : undefined,
       rubric: {
         threshold: this.rubric.threshold,
         enforcement: this.rubric.enforcement,
@@ -287,10 +322,17 @@ export class BacklogPanel {
 
   private async saveQuality() {
     if (!this.slug) return;
-    this.assessments = pruneAssessments(this.assessments, this.liveKeys());
+    const live = this.liveKeys();
+    this.assessments = pruneAssessments(this.assessments, live);
+    this.observations = pruneByKey(this.observations, live);
+    this.conflicts = pruneByKey(this.conflicts, live);
     await saveQuality(new WorkspaceFs(), dataFolder(), this.slug, {
       assessments: this.assessments,
       overrides: this.overrides
+    });
+    await savePanelFindings(new WorkspaceFs(), dataFolder(), this.slug, {
+      observations: this.observations,
+      conflicts: this.conflicts
     });
   }
 
@@ -355,6 +397,14 @@ export class BacklogPanel {
     await this.send();
   }
 
+  /**
+   * Reviews quality against the rubric.
+   *
+   * The full profile runs a panel of specialist reviewers; the restricted one
+   * runs a single pass. Both produce the same criterion ratings keyed the same
+   * way, so scoring, caching and the push gate are identical — the panel only
+   * adds attribution and the findings the rubric has no number for.
+   */
   private async deepReview(only?: string[]) {
     if (!this.backlog) return;
     await this.run('Reviewing quality…', async () => {
@@ -363,10 +413,90 @@ export class BacklogPanel {
       const storyRefs = this.backlog!.epics.filter((e) => epicRefs.includes(e.ref)).flatMap((e) =>
         e.stories.map((s) => s.ref)
       );
+      const progress = {
+        report: (message: string) => {
+          this.busyLabel = message;
+          void this.send();
+        }
+      };
 
-      this.assessments = await assessBacklog(llm, this.backlog!, this.rubric, {
-        only: { epics: epicRefs, stories: storyRefs },
-        cached: this.assessments,
+      if (registry.agents) {
+        const result = await registry.agents.runPanel(llm, this.backlog!, {
+          only: { epics: epicRefs, stories: storyRefs },
+          cached: this.assessments as Map<string, never>,
+          progress
+        });
+
+        for (const [key, criteria] of result.criteria) this.assessments.set(key, criteria);
+        this.lastPanelRun = result.runs;
+
+        // Findings replace rather than accumulate for the items just reviewed:
+        // re-reviewing an item and keeping the previous run's observations
+        // would show the PO advice that this run no longer stands behind.
+        for (const key of result.criteria.keys()) {
+          this.observations.delete(key);
+          this.conflicts.delete(key);
+        }
+        for (const observation of result.observations) {
+          const key = this.keyFor(observation.level, observation.ref);
+          if (key) this.observations.set(key, [...(this.observations.get(key) ?? []), observation]);
+        }
+        for (const conflict of result.conflicts) {
+          const key = this.keyFor(conflict.level, conflict.ref);
+          if (key) this.conflicts.set(key, [...(this.conflicts.get(key) ?? []), conflict]);
+        }
+      } else {
+        this.assessments = await assessBacklog(llm, this.backlog!, this.rubric, {
+          only: { epics: epicRefs, stories: storyRefs },
+          cached: this.assessments,
+          progress
+        });
+      }
+
+      await this.saveQuality();
+
+      const q = this.quality()!;
+      const failedReviewers = (this.lastPanelRun ?? []).filter((r) => !r.ok);
+      this.notice = {
+        kind: q.failed > 0 || failedReviewers.length > 0 ? 'warn' : 'info',
+        message: `Quality review complete — average ${q.score}, ${q.passed} of ${q.passed + q.failed} items at or above ${q.threshold}.`,
+        // A partial panel must say so. Silently scoring an item on three of
+        // four reviewers, with no sign that the fourth never ran, is the one
+        // failure here that a PO could not possibly detect.
+        hint:
+          failedReviewers.length > 0
+            ? `${failedReviewers.map((r) => r.reviewerId).join(' and ')} did not complete, so some criteria were not rated.`
+            : q.failed > 0
+              ? `${q.failed} item(s) need work before they can be sent.`
+              : undefined
+      };
+    });
+  }
+
+  /** The current cache key for an item, or undefined if it is no longer there. */
+  private keyFor(level: 'epic' | 'story', ref: string): string | undefined {
+    if (level === 'epic') {
+      const epic = this.backlog?.epics.find((e) => e.ref === ref);
+      return epic ? cacheKey('epic', epic.ref, epicFingerprint(epic)) : undefined;
+    }
+    const story = this.backlog?.epics.flatMap((e) => e.stories).find((s) => s.ref === ref);
+    return story ? cacheKey('story', story.ref, storyFingerprint(story)) : undefined;
+  }
+
+  /**
+   * Checks proposed epics against work that already exists in the tenant.
+   *
+   * Advisory only. The result never removes anything from a push plan — a PO
+   * decides whether a match means "do not create this", and an issue that
+   * silently failed to appear is far harder to notice than a duplicate.
+   */
+  private async checkExisting(only?: string[]) {
+    if (!this.backlog) return;
+    await this.run('Checking for existing work…', async () => {
+      const { atlassian, llm } = await this.ports();
+      if (!registry.agents) return;
+      this.duplicates = await registry.agents.findDuplicates(atlassian, llm, this.backlog!, {
+        only,
         progress: {
           report: (message) => {
             this.busyLabel = message;
@@ -374,14 +504,18 @@ export class BacklogPanel {
           }
         }
       });
-      await this.saveQuality();
 
-      const q = this.quality()!;
-      this.notice = {
-        kind: q.failed > 0 ? 'warn' : 'info',
-        message: `Quality review complete — average ${q.score}, ${q.passed} of ${q.passed + q.failed} items at or above ${q.threshold}.`,
-        hint: q.failed > 0 ? `${q.failed} item(s) need work before they can be sent.` : undefined
-      };
+      const { available, candidates, unavailableReason } = this.duplicates;
+      const duplicates = candidates.filter((c) => c.relationship === 'duplicate').length;
+      this.notice = !available
+        ? { kind: 'info', message: 'Could not check for existing work.', hint: unavailableReason }
+        : candidates.length === 0
+          ? { kind: 'info', message: 'Nothing similar found in Jira.' }
+          : {
+              kind: duplicates > 0 ? 'warn' : 'info',
+              message: `Found ${candidates.length} existing issue(s) that may overlap${duplicates > 0 ? `, ${duplicates} looking like duplicates` : ''}.`,
+              hint: 'Nothing has been skipped — review them before sending.'
+            };
     });
   }
 
@@ -514,6 +648,12 @@ export class BacklogPanel {
     const record = await loadQuality(new WorkspaceFs(), dataFolder(), slug);
     this.assessments = record.assessments;
     this.overrides = record.overrides;
+    const findings = await loadPanelFindings(new WorkspaceFs(), dataFolder(), slug);
+    this.observations = findings.observations;
+    this.conflicts = findings.conflicts;
+    // Both belong to the run that produced them, not to the backlog.
+    this.lastPanelRun = undefined;
+    this.duplicates = undefined;
     await this.send();
   }
 
@@ -662,6 +802,13 @@ export class BacklogPanel {
         await this.improve(msg.only);
         return;
 
+      case 'checkExisting':
+        await this.checkExisting(msg.only);
+        break;
+      case 'dismissDuplicates':
+        this.duplicates = undefined;
+        await this.send();
+        break;
       case 'dismissImproveReport':
         this.improveReport = undefined;
         await this.send();
@@ -814,6 +961,7 @@ export class BacklogPanel {
 
     await this.store().remove(slug);
     await deleteQuality(new WorkspaceFs(), dataFolder(), slug);
+    await deletePanelFindings(new WorkspaceFs(), dataFolder(), slug);
 
     // Drop it from memory too if it is the one currently open.
     if (this.slug === slug) {

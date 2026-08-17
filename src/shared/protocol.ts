@@ -1,4 +1,6 @@
+import type { Conflict, Observation, ReviewerRun } from '../core/agents/types';
 import type { Backlog, EpicItem } from '../core/model';
+import type { DuplicateCandidate } from '../core/pipeline/duplicates';
 import type { PushPlan, PushResult } from '../core/pipeline/push';
 import type { BacklogQuality, CriterionDef } from '../core/rubric/index';
 import type { ImproveResult } from '../core/pipeline/improve';
@@ -75,6 +77,36 @@ export interface PanelState {
   criteria: CriterionDef[];
   /** Report from the last improve run, awaiting dismissal. */
   improveReport: (ImproveResult & { stopExplanation: string }) | undefined;
+  /**
+   * The review panel, when this build has one.
+   *
+   * Empty on the restricted profile, where a single pass does the whole rubric.
+   * The webview shows attribution only when it is present, so both builds
+   * render from the same code without a profile check in the UI.
+   */
+  reviewers: { id: string; name: string; purpose: string }[];
+  /**
+   * Findings the rubric has no number for. Already filtered to items at their
+   * current fingerprint, so an edited item's observations disappear with its
+   * ratings rather than lingering as stale advice.
+   */
+  observations: Observation[];
+  /** Places two reviewers disagreed. A decision for the PO, not a defect. */
+  conflicts: Conflict[];
+  /** Set for the run just completed, so a partial panel can say who was missing. */
+  lastPanelRun: ReviewerRun[] | undefined;
+  /**
+   * Whether checking for existing work is worth offering at all. Keyed off the
+   * configured transport rather than the reviewer panel: they arrive in the
+   * same build but answer different questions, and a REST user seeing a button
+   * that always reports "unavailable" is worse than not seeing it.
+   */
+  canCheckExisting: boolean;
+  /**
+   * Existing Jira work that may already cover a proposed epic. Only ever
+   * advisory — nothing is skipped on the strength of it.
+   */
+  duplicates: { available: boolean; unavailableReason?: string; candidates: DuplicateCandidate[] } | undefined;
   /** Where the rubric came from, and any problem loading it. */
   rubric: {
     threshold: number;
@@ -128,6 +160,9 @@ export type WebviewMessage =
   | { type: 'createRubricFile' }
   | { type: 'improve'; only?: string[] }
   | { type: 'dismissImproveReport' }
+  /** Check proposed epics against work that already exists in the tenant. */
+  | { type: 'checkExisting'; only?: string[] }
+  | { type: 'dismissDuplicates' }
   | { type: 'waiveFinding'; level: 'epic' | 'story'; ref: string; ruleId: string }
   | { type: 'unwaiveFinding'; level: 'epic' | 'story'; ref: string; ruleId: string }
   | { type: 'acceptBelowThreshold'; level: 'epic' | 'story'; ref: string }

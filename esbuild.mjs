@@ -30,7 +30,15 @@ const FORBIDDEN_IN_RESTRICTED = [
   // minification and cannot be renamed away.
   'notifications/initialized',
   'tools/call',
-  'JSONRPC'
+  'JSONRPC',
+  // Not a policy rule — the reviewer panel only ever talks to Copilot, which
+  // the client permits. This is the architectural invariant: full-profile code
+  // must be absent from the restricted bundle rather than merely unreachable
+  // behind a runtime branch, because only absence can be checked from outside.
+  // These are emit-tool names, which survive minification and cannot be
+  // renamed away.
+  'emit_conflicts',
+  'emit_duplicate_verdicts'
 ];
 
 /** Fails the build if a restricted bundle contains anything it should not. */

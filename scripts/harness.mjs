@@ -105,9 +105,21 @@ if (!process.env.HARNESS_SYNCED) {
    blocked, and not-yet-reviewed. */
 const CRITERIA = [...EPIC_CRITERIA, ...STORY_CRITERIA];
 
+/* Which reviewer owns which criterion, mirroring REVIEWERS without importing
+   it — the harness renders the restricted build too, where there is no panel. */
+const OWNER = {
+  'epic-outcome-focused': 'product', 'epic-coherent': 'product', 'epic-bounded': 'product',
+  'invest-valuable': 'product', 'invest-negotiable': 'product',
+  'epic-independent': 'delivery', 'epic-right-sized': 'delivery',
+  'invest-independent': 'delivery', 'invest-estimable': 'delivery', 'invest-small': 'delivery',
+  'epic-testable': 'test', 'invest-testable': 'test',
+  'epic-traceable': 'evidence'
+};
+
 function ratingsFor(level, rating) {
   return (level === 'epic' ? EPIC_CRITERIA : STORY_CRITERIA).map((c) => ({
     id: c.id,
+    reviewerId: HARNESS_PANEL ? OWNER[c.id] : undefined,
     rating,
     justification:
       rating >= 3
@@ -135,6 +147,10 @@ function buildQuality() {
   }
   return evaluateBacklog(backlog, DEFAULT_RUBRIC, cached);
 }
+
+// HARNESS_PANEL=1 renders the full profile: attributed ratings, observations
+// and a conflict. Off by default so the restricted build is what you see.
+const HARNESS_PANEL = Boolean(process.env.HARNESS_PANEL);
 
 const complete = process.env.HARNESS_SETUP !== 'incomplete';
 const view = process.env.HARNESS_VIEW || (complete ? 'home' : 'setup');
@@ -186,6 +202,50 @@ const state = {
   undoLabel: 'edit',
   redoLabel: undefined,
   criteria: CRITERIA,
+  reviewers: HARNESS_PANEL
+    ? [
+        { id: 'product', name: 'Product', purpose: 'Is this the right work, and is it bounded?' },
+        { id: 'delivery', name: 'Delivery', purpose: 'Can a team actually build and ship this?' },
+        { id: 'test', name: 'Test', purpose: 'Could someone verify this without asking what was meant?' },
+        { id: 'evidence', name: 'Evidence', purpose: 'Is every claim supported by the source?' }
+      ]
+    : [],
+  observations: HARNESS_PANEL
+    ? [
+        {
+          reviewerId: 'test',
+          level: 'epic',
+          ref: backlog.epics[0]?.ref,
+          severity: 'warn',
+          message: 'No acceptance criterion covers what happens when the rule service is unavailable.',
+          field: 'acceptanceCriteria'
+        },
+        {
+          reviewerId: 'evidence',
+          level: 'epic',
+          ref: backlog.epics[0]?.ref,
+          severity: 'warn',
+          message: 'The source states a 2-second response budget, but no item carries it as a non-functional requirement.'
+        }
+      ]
+    : [],
+  conflicts: HARNESS_PANEL
+    ? [
+        {
+          level: 'epic',
+          ref: backlog.epics[0]?.ref,
+          between: ['delivery', 'product'],
+          positions: [
+            'Split this into rule authoring and rule publishing so the first half can ship in one sprint.',
+            'Authoring without publishing changes nothing for an administrator, so the split would ship no outcome.'
+          ],
+          tradeoff: 'Ship something in one sprint, or keep the epic whole and deliver the outcome in two.'
+        }
+      ]
+    : [],
+  lastPanelRun: undefined,
+  canCheckExisting: HARNESS_PANEL,
+  duplicates: undefined,
   rubric: { threshold: 70, enforcement: 'block', requireReview: true, source: 'default' },
   quality: buildQuality()
 };

@@ -310,6 +310,49 @@ pre.readonly {
 .finding.waived em { font-style: italic; }
 .finding.accepted { color: var(--yellow); }
 
+/* Which reviewer rated a criterion. Quiet — it is provenance, not a verdict. */
+.attribution {
+  margin-left: 8px; padding: 1px 6px; border-radius: 9px;
+  border: 1px solid var(--border); color: var(--muted); font-size: 10px;
+}
+
+/* An observation is a reviewer's remark, not a rule violation, so it carries a
+   name badge instead of a severity badge and cannot be dismissed as a rule. */
+.finding.observation { color: var(--fg); }
+
+/*
+ * A conflict is a decision, not a defect. It is boxed rather than listed so it
+ * does not read as one more warning to clear, and it deliberately has no
+ * action button — the resolution is a change to the item, made by a person.
+ */
+.conflict {
+  margin: 12px 0; padding: 12px; border-radius: 6px;
+  border: 1px solid var(--yellow);
+  background: color-mix(in srgb, var(--yellow) 7%, transparent);
+}
+.conflict-head { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+/* Collapses on the space actually available, not on viewport width: this card
+   lives inside the detail column, which the rail has already narrowed, so a
+   viewport media query would keep two columns long after they stopped fitting. */
+.conflict-sides {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.conflict-side {
+  min-width: 0; padding: 8px 10px; border-radius: 4px;
+  background: var(--bg); border: 1px solid var(--border);
+}
+.conflict-who { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+.conflict-tradeoff { margin-top: 10px; }
+.conflict-tradeoff::before { content: 'Your call: '; color: var(--muted); }
+
+/* Existing Jira work that may already cover a proposed epic. */
+.dupe { display: flex; gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.dupe:last-child { border-bottom: none; }
+.dupe .badge.duplicate { background: var(--red); }
+.dupe .badge.overlaps { background: var(--yellow); color: var(--bg); }
+.dupe-reason { color: var(--muted); }
+
 /* Findings link to the field they are about. */
 .link-finding {
   flex: 1; text-align: left; background: none; border: none; padding: 0;
