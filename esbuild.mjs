@@ -6,7 +6,18 @@ import path from 'node:path';
 const root = path.dirname(fileURLToPath(import.meta.url));
 
 const args = process.argv.slice(2);
-const profile = (args.find((a) => a.startsWith('--profile=')) ?? '--profile=restricted').split('=')[1];
+/**
+ * Profile comes from the flag, then the environment, then the safe default.
+ *
+ * The environment matters because `vsce package` runs `vscode:prepublish`
+ * itself, with no way to pass it a flag. When that hook was hardcoded to
+ * restricted it rebuilt `dist/` on top of a full build, and `package:full`
+ * shipped a restricted bundle under a full name.
+ */
+const profile =
+  (args.find((a) => a.startsWith('--profile=')) ?? `--profile=${process.env.REQFORGE_PROFILE ?? 'restricted'}`).split(
+    '='
+  )[1];
 const watch = args.includes('--watch');
 const minify = args.includes('--minify');
 
@@ -30,7 +41,10 @@ const FORBIDDEN_IN_RESTRICTED = [
   // minification and cannot be renamed away.
   'notifications/initialized',
   'tools/call',
-  'JSONRPC',
+  // Lowercase: the wire field name in every JSON-RPC envelope. The uppercase
+  // `JSONRPC` used to be here and was inert — it is an identifier prefix, and
+  // packaging minifies, so it was renamed away before the guard ever saw it.
+  'jsonrpc',
   // Not a policy rule — the reviewer panel only ever talks to Copilot, which
   // the client permits. This is the architectural invariant: full-profile code
   // must be absent from the restricted bundle rather than merely unreachable

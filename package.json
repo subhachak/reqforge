@@ -146,13 +146,14 @@
     "build": "node esbuild.mjs --profile=restricted",
     "build:full": "node esbuild.mjs --profile=full",
     "watch": "node esbuild.mjs --profile=restricted --watch",
-    "package": "npm run check && node esbuild.mjs --profile=restricted --minify && npx --yes @vscode/vsce package --out reqforge-restricted.vsix",
-    "package:full": "npm run check && node esbuild.mjs --profile=full --minify && npx --yes @vscode/vsce package --out reqforge-full.vsix",
-    "vscode:prepublish": "npm run build",
+    "package": "npm run check && REQFORGE_PROFILE=restricted npx --yes @vscode/vsce package --out reqforge-restricted.vsix && node scripts/verifyVsix.mjs reqforge-restricted.vsix restricted",
+    "package:full": "npm run check && REQFORGE_PROFILE=full npx --yes @vscode/vsce package --out reqforge-full.vsix && node scripts/verifyVsix.mjs reqforge-full.vsix full",
+    "vscode:prepublish": "node esbuild.mjs --minify",
     "harness": "node scripts/harness.mjs",
     "hooks": "git config core.hooksPath .githooks && echo \"pre-push hook enabled\"",
     "prepare": "git config core.hooksPath .githooks || true",
-    "contract": "node scripts/contract.mjs"
+    "contract": "node scripts/contract.mjs",
+    "verify:vsix": "node scripts/verifyVsix.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",

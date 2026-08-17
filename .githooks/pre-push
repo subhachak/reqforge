@@ -3,9 +3,15 @@
 # Builds the installable VSIX before every push.
 #
 # `npm run package` runs the typecheck, the full test suite, the compliance
-# guard against the restricted bundle, and then vsce. So this is not only a
-# packaging step: nothing reaches the remote that fails to build, fails a test,
-# or has leaked a forbidden dependency into the restricted profile.
+# guard against the restricted bundle, vsce, and then a check of the packaged
+# artifact itself. So this is not only a packaging step: nothing reaches the
+# remote that fails to build, fails a test, or has leaked a forbidden dependency
+# into the restricted profile.
+#
+# The artifact check exists because the guard inspects dist/ during the build,
+# and `vsce package` runs the vscode:prepublish hook afterwards — so what the
+# guard approved is not necessarily what ends up inside the zip. That gap once
+# put a restricted bundle inside reqforge-full.vsix with a clean guard report.
 #
 # Git does not pick up a committed hooks directory on its own — it needs
 # `git config core.hooksPath .githooks`, which `npm run hooks` sets and which

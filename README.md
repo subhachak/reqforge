@@ -640,13 +640,17 @@ them, and a miss is a pattern edit rather than a rewrite.
 ### 1. Build and install the full VSIX
 
 ```
+cd reqforge
 npm run package:full
 code --install-extension reqforge-full.vsix
 ```
 
 `package:full` runs the same gate as a push — typecheck, both test suites, the
-compliance guard — then builds minified and packages. Reload the window
-afterwards. The output channel confirms which build you are on:
+compliance guard — then packages and verifies the artifact, printing
+`vsix verify: reqforge-full.vsix is full (5 of 5 markers)`. That last step is
+not decoration: the compliance guard inspects `dist/` during the build, while
+`vsce` runs the `vscode:prepublish` hook afterwards, so what the guard approved
+is not necessarily what ends up in the zip. Reload the window afterwards. The output channel confirms which build you are on:
 
 ```
 ReqForge activated — profile: full
