@@ -1,3 +1,4 @@
+import { AtlassianMcpAdapter } from './adapters/atlassian/mcp';
 import { AtlassianRestAdapter } from './adapters/atlassian/rest';
 import { CopilotLlmAdapter } from './adapters/llm/copilot';
 import { FixtureLlmAdapter } from './adapters/llm/fixture';
@@ -27,9 +28,14 @@ export const registry: AdapterRegistry = {
 
   createAtlassian(ctx: AdapterContext): AtlassianPort {
     if (ctx.transport === 'mcp') {
-      throw new Error(
-        'The MCP transport is not implemented yet. See src/registry.full.ts for the intended shape, and use "rest" in the meantime.'
-      );
+      return new AtlassianMcpAdapter({
+        endpoint: ctx.mcpEndpoint ?? '',
+        baseUrl: ctx.baseUrl,
+        // A bearer token is only sent to an http(s) endpoint the user configured
+        // themselves. The usual path is the stdio proxy, which owns its own
+        // OAuth flow and never sees this value.
+        headers: ctx.apiToken ? { Authorization: `Bearer ${ctx.apiToken}` } : undefined
+      });
     }
     return new AtlassianRestAdapter({ baseUrl: ctx.baseUrl, email: ctx.email, apiToken: ctx.apiToken });
   },

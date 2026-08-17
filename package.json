@@ -129,7 +129,7 @@
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.mjs",
     "preflight": "node scripts/preflight.mjs",
-    "check": "npm run typecheck && npm run smoke && npm run build",
+    "check": "npm run typecheck && npm run smoke && npm run contract && npm run build",
     "build": "node esbuild.mjs --profile=restricted",
     "build:full": "node esbuild.mjs --profile=full",
     "watch": "node esbuild.mjs --profile=restricted --watch",
@@ -138,9 +138,11 @@
     "vscode:prepublish": "npm run build",
     "harness": "node scripts/harness.mjs",
     "hooks": "git config core.hooksPath .githooks && echo \"pre-push hook enabled\"",
-    "prepare": "git config core.hooksPath .githooks || true"
+    "prepare": "git config core.hooksPath .githooks || true",
+    "contract": "node scripts/contract.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "turndown": "^7.2.0",

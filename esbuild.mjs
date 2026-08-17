@@ -23,7 +23,14 @@ const FORBIDDEN_IN_RESTRICTED = [
   '@anthropic-ai/sdk',
   '@modelcontextprotocol/sdk',
   'mcp.atlassian.com',
-  'api.openai.com'
+  'api.openai.com',
+  // Protocol-level strings rather than package names. A bundler could in
+  // principle drop the specifier while keeping the code; these are wire
+  // constants the MCP client cannot function without, so they survive
+  // minification and cannot be renamed away.
+  'notifications/initialized',
+  'tools/call',
+  'JSONRPC'
 ];
 
 /** Fails the build if a restricted bundle contains anything it should not. */

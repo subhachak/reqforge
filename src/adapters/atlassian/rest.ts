@@ -264,6 +264,18 @@ export class AtlassianRestAdapter implements AtlassianPort {
     return { id: res.id, key: res.key, url: `${this.base}/browse/${res.key}` };
   }
 
+  /**
+   * Not available over REST. Jira's `text ~ ...` JQL and Confluence's CQL are
+   * keyword matching, not Teamwork Graph retrieval; dressing one up as the
+   * other would make duplicate detection quietly unreliable. Callers gate on
+   * the `graph.search` capability, which this adapter does not advertise.
+   */
+  async semanticSearch(): Promise<never> {
+    throw new AtlassianError(
+      'Semantic search needs the Teamwork Graph, which the REST transport cannot reach. Switch the transport to "mcp" in settings.'
+    );
+  }
+
   async updateIssue(key: string, patch: IssuePatch): Promise<void> {
     const fields: Record<string, unknown> = {};
     if (patch.summary !== undefined) fields.summary = patch.summary.slice(0, 255);

@@ -12,7 +12,13 @@ export type Capability =
   | 'jira.search'
   | 'jira.createmeta'
   | 'jira.children'
-  | 'jira.bulkCreate';
+  | 'jira.bulkCreate'
+  /**
+   * Semantic / cross-product retrieval over the Teamwork Graph. Not a REST
+   * endpoint — only transports that expose Atlassian's search tools have it,
+   * so every caller must check for it rather than assuming.
+   */
+  | 'graph.search';
 
 export interface PageDoc {
   id: string;
@@ -76,6 +82,28 @@ export interface IssuePatch {
   removeLabels?: string[];
 }
 
+/** A hit from Teamwork Graph retrieval. Deliberately product-agnostic. */
+export interface SearchHit {
+  /** Jira issue key, Confluence page id, or whatever the source calls it. */
+  id: string;
+  title: string;
+  /** 'jira' | 'confluence' | anything else the graph surfaces. */
+  product: string;
+  /** Issue type, page, whiteboard, etc. Free text — servers differ. */
+  entityType?: string;
+  url?: string;
+  /** Snippet or summary. Not the full body; retrieval is for triage. */
+  excerpt?: string;
+  /** Present only when the server reports one. Never synthesised. */
+  score?: number;
+}
+
+export interface SearchOptions {
+  limit?: number;
+  /** Restrict to particular products, when the server supports it. */
+  products?: string[];
+}
+
 export interface AtlassianPort {
   readonly kind: 'rest' | 'mcp' | 'fixture';
   capabilities(): ReadonlySet<Capability>;
@@ -92,6 +120,15 @@ export interface AtlassianPort {
   searchIssues(jql: string, max?: number): Promise<IssueRef[]>;
   /** Like searchIssues but returns full detail, for pulling an epic's children in one call. */
   searchIssueDetails(jql: string, max?: number): Promise<IssueDetail[]>;
+  /**
+   * Natural-language retrieval across Confluence and Jira.
+   *
+   * Throws on transports without `graph.search` rather than returning an empty
+   * array — an empty result and "cannot do this" mean different things, and
+   * silently conflating them would let duplicate detection report "no
+   * duplicates" on a transport that never looked.
+   */
+  semanticSearch(query: string, opts?: SearchOptions): Promise<SearchHit[]>;
 }
 
 /* ---------------------------------------------------------------- LLM port */
